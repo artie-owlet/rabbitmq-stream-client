@@ -1,0 +1,44 @@
+{
+  "name": "@artie-owlet/rabbitmq-stream-client",
+  "version": "1.0.0-dev.0",
+  "description": "Client for RabbitMQ Streams",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist/",
+    "lint": "eslint --cache --ext .js,.jsx,.ts,.tsx src/ test/",
+    "test": "mocha -r ts-node/register/transpile-only test/*.ts",
+    "coverage": "nyc npm run test",
+    "doc": "typedoc"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@istanbuljs/nyc-config-typescript": "^1.0.2",
+    "@types/chai": "^4.3.4",
+    "@types/chai-as-promised": "^7.1.5",
+    "@types/mocha": "^10.0.1",
+    "@types/node": "^18.11.18",
+    "@typescript-eslint/eslint-plugin": "^5.48.0",
+    "@typescript-eslint/parser": "^5.48.0",
+    "chai": "^4.3.7",
+    "chai-as-promised": "^7.1.1",
+    "eslint": "^8.31.0",
+    "mocha": "^10.2.0",
+    "nyc": "^15.1.0",
+    "ts-node": "^10.9.1",
+    "typedoc": "^0.23.23",
+    "typescript": "^4.9.4"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/artie-owlet/rabbitmq-stream-client.git"
+  },
+  "keywords": [
+    "RabbitMQ",
+    "RabbitMQ Streams"
+  ]
+}
