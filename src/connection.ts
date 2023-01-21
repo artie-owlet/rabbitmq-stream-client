@@ -2,6 +2,13 @@ import EventEmitter from 'events';
 import { connect, Socket } from 'net';
 import { connect as tlsConnect, ConnectionOptions as TlsConnectionOptions, TLSSocket } from 'tls';
 
+import { Commands } from './constants';
+
+const hbMsg = Buffer.allocUnsafe(8);
+hbMsg.writeUInt32BE(4, 0);
+hbMsg.writeUInt16BE(Commands.Heartbeat, 4);
+hbMsg.writeUInt16BE(1, 6);
+
 export interface IConnectionOptions {
     host: string;
     port: number;
@@ -16,7 +23,7 @@ export class Connection extends EventEmitter {
     private recvBuf: Buffer | null = null;
     private frameMax = 0;
     private heartbeatTimer: NodeJS.Timer | null = null;
-    private isAlive = false;
+    private dataReceived = false;
 
     constructor(
         opts: IConnectionOptions,
@@ -44,7 +51,7 @@ export class Connection extends EventEmitter {
             this.sock.setNoDelay(opts.noDelay);
         }
         if (opts.timeout !== undefined) {
-            this.sock.setTimeout(opts.timeout, () => this.emit('error', new Error('socket timeout')));
+            this.sock.setTimeout(opts.timeout, this.onSocketTimeout.bind(this));
         }
     }
 
@@ -53,10 +60,7 @@ export class Connection extends EventEmitter {
     }
 
     public setHeartbeat(heartbeat: number): void {
-        if (this.heartbeatTimer) {
-            clearInterval(this.heartbeatTimer);
-            this.heartbeatTimer = null;
-        }
+        this.stopHeartbeat();
         if (heartbeat > 0) {
             this.heartbeatTimer = setInterval(this.onHeartbeatTimeout.bind(this), heartbeat * 1000);
         }
@@ -79,15 +83,14 @@ export class Connection extends EventEmitter {
     }
 
     public close(): void {
-        this.sock.end();
-        if (this.heartbeatTimer) {
-            clearInterval(this.heartbeatTimer);
-            this.heartbeatTimer = null;
+        if (!this.sock.closed) {
+            this.sock.end();
         }
+        this.stopHeartbeat();
     }
 
     private onData(data: Buffer): void {
-        this.isAlive = true;
+        this.dataReceived = true;
 
         if (this.recvBuf !== null) {
             this.recvBuf = Buffer.concat([this.recvBuf, data]);
@@ -113,7 +116,24 @@ export class Connection extends EventEmitter {
     }
 
     private onHeartbeatTimeout(): void {
-        if (!this.isAlive) {
+        if (!this.dataReceived) {
+            this.emit('error', new Error('heartbeat timeout'));
+            this.close();
+            return;
         }
+        this.dataReceived = false;
+        this.sock.write(hbMsg);
+    }
+
+    private stopHeartbeat(): void {
+        if (this.heartbeatTimer) {
+            clearInterval(this.heartbeatTimer);
+            this.heartbeatTimer = null;
+        }
+    }
+
+    private onSocketTimeout(): void {
+        this.emit('error', new Error('socket timeout'));
+        this.close();
     }
 }

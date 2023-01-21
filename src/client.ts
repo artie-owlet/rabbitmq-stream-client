@@ -27,6 +27,18 @@ export class Client extends EventEmitter {
 
     private connect(): void {
         this.conn = new Connection(this.connOpts);
-        // this.conn
+        this.conn.on('connect', this.onConnect.bind(this));
+        this.conn.on('message', this.onMessage.bind(this));
+        this.conn.on('close', this.onClose.bind(this));
+        this.conn.on('error', (err: Error) => this.emit('error', err));
+    }
+
+    private onConnect(): void {
+    }
+
+    private onMessage(data: Buffer): void {
+    }
+
+    private onClose(): void {
     }
 }
