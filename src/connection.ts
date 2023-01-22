@@ -2,7 +2,7 @@ import EventEmitter from 'events';
 import { connect, Socket } from 'net';
 import { connect as tlsConnect, ConnectionOptions as TlsConnectionOptions, TLSSocket } from 'tls';
 
-import { Commands } from './constants';
+import { Commands, RESPONSE_FLAG } from './messages/constants';
 
 const hbMsg = Buffer.allocUnsafe(8);
 hbMsg.writeUInt32BE(4, 0);
@@ -14,16 +14,39 @@ export interface IConnectionOptions {
     port: number;
     keepAlive?: number | false;
     noDelay?: boolean;
-    timeout?: number;
     tls?: TlsConnectionOptions;
+}
+
+interface IConnectionEvents {
+    connect: () => void;
+    command: (key: number, version: number, msg: Buffer) => void;
+    close: () => void;
+    error: (err: Error) => void;
+}
+
+// eslint-disable-next-line @typescript-eslint/naming-convention
+export interface Connection {
+    on<E extends keyof IConnectionEvents>(event: E, listener: IConnectionEvents[E]): this;
+    once<E extends keyof IConnectionEvents>(event: E, listener: IConnectionEvents[E]): this;
+    addListener<E extends keyof IConnectionEvents>(event: E, listener: IConnectionEvents[E]): this;
+    prependListener<E extends keyof IConnectionEvents>(event: E, listener: IConnectionEvents[E]): this;
+    prependOnceListener<E extends keyof IConnectionEvents>(event: E, listener: IConnectionEvents[E]): this;
+    emit<E extends keyof IConnectionEvents>(event: E, ...params: Parameters<IConnectionEvents[E]>): boolean;
+}
+
+interface IRequest {
+    resolve: (msg: Buffer) => void;
+    reject: (err: Error) => void;
 }
 
 export class Connection extends EventEmitter {
     private sock: Socket | TLSSocket;
-    private recvBuf: Buffer | null = null;
     private frameMax = 0;
     private heartbeatTimer: NodeJS.Timer | null = null;
     private dataReceived = false;
+    private recvBuf: Buffer | null = null;
+    private corrIdCounter = 0;
+    private requests = new Map<number, IRequest>();
 
     constructor(
         opts: IConnectionOptions,
@@ -37,7 +60,7 @@ export class Connection extends EventEmitter {
         }
 
         this.sock.on('data', this.onData.bind(this));
-        this.sock.on('close', () => this.emit('close'));
+        this.sock.on('close', () => this.onClose.bind(this));
         this.sock.on('error', (err: Error) => this.emit('error', err));
 
         if (opts.keepAlive !== undefined) {
@@ -49,9 +72,6 @@ export class Connection extends EventEmitter {
         }
         if (opts.noDelay !== undefined) {
             this.sock.setNoDelay(opts.noDelay);
-        }
-        if (opts.timeout !== undefined) {
-            this.sock.setTimeout(opts.timeout, this.onSocketTimeout.bind(this));
         }
     }
 
@@ -66,20 +86,23 @@ export class Connection extends EventEmitter {
         }
     }
 
-    public sendMessage(key: number, version: number, corrId: number | null, data: Buffer): void {
-        const corrIdSize = corrId === null ? 0 : 4;
-        const header = Buffer.allocUnsafe(8 + corrIdSize);
-        const msgSize = data.length + 4 + corrIdSize;
-        if (this.frameMax > 0 && header.length + msgSize > this.frameMax) {
-            throw new Error('frame too large');
+    public sendMessage(msg: Buffer): void {
+        if (this.frameMax > 0 && msg.length > this.frameMax) {
+            throw new Error('Frame too large');
         }
-        header.writeUInt32BE(msgSize, 0);
-        header.writeUInt16BE(key, 4);
-        header.writeUInt16BE(version, 6);
-        if (corrId !== null) {
-            header.writeUInt32BE(corrId, 8);
-        }
-        this.sock.write(Buffer.concat([header, data]));
+        this.sock.write(msg);
+    }
+
+    public sendRequest(msg: Buffer): Promise<Buffer> {
+        return new Promise((resolve, reject) => {
+            const corrId = ++this.corrIdCounter;
+            this.requests.set(corrId, {
+                resolve,
+                reject,
+            });
+            msg.writeUInt32BE(corrId, 8);
+            this.sendMessage(msg);
+        });
     }
 
     public close(): void {
@@ -104,7 +127,7 @@ export class Connection extends EventEmitter {
             if (offset + 4 + msgSize > this.recvBuf.length) {
                 break;
             }
-            this.emit('message', this.recvBuf.subarray(offset + 4, offset + 4 + msgSize));
+            this.handleMessage(this.recvBuf.subarray(offset, offset + 4 + msgSize));
             offset += 4 + msgSize;
         }
 
@@ -115,9 +138,26 @@ export class Connection extends EventEmitter {
         }
     }
 
+    private handleMessage(msg: Buffer): void {
+        const key = msg.readUInt16BE(4);
+        if ((key & RESPONSE_FLAG) !== 0 && key !== Commands.CreditResponse) {
+            const corrId = msg.readUInt32BE(8);
+            const req = this.requests.get(corrId);
+            if (req) {
+                req.resolve(msg);
+                this.requests.delete(corrId);
+            } else {
+                this.emit('error', new Error(`Unexpected response for command ${Commands[key]}`));
+            }
+        } else if (key !== Commands.Heartbeat) {
+            const version = msg.readUInt16BE(6);
+            this.emit('command', key, version, msg);
+        }
+    }
+
     private onHeartbeatTimeout(): void {
         if (!this.dataReceived) {
-            this.emit('error', new Error('heartbeat timeout'));
+            this.emit('error', new Error('Heartbeat timeout'));
             this.close();
             return;
         }
@@ -132,8 +172,14 @@ export class Connection extends EventEmitter {
         }
     }
 
-    private onSocketTimeout(): void {
-        this.emit('error', new Error('socket timeout'));
-        this.close();
+    private onClose(): void {
+        this.stopHeartbeat();
+
+        this.requests.forEach((req) => {
+            req.reject(new Error('Connection closed'));
+        });
+        this.requests.clear();
+
+        this.emit('close');
     }
 }
