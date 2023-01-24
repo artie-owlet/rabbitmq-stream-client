@@ -3,6 +3,7 @@ import { connect, Socket } from 'net';
 import { connect as tlsConnect, ConnectionOptions as TlsConnectionOptions, TLSSocket } from 'tls';
 
 import { Commands, RESPONSE_FLAG } from './messages/constants';
+import { Message } from './messages/message';
 
 const hbMsg = Buffer.allocUnsafe(8);
 hbMsg.writeUInt32BE(4, 0);
@@ -86,21 +87,22 @@ export class Connection extends EventEmitter {
         }
     }
 
-    public sendMessage(msg: Buffer): void {
-        if (this.frameMax > 0 && msg.length > this.frameMax) {
+    public sendMessage(msg: Message): void {
+        const data = msg.serialize();
+        if (this.frameMax > 0 && data.length > this.frameMax) {
             throw new Error('Frame too large');
         }
-        this.sock.write(msg);
+        this.sock.write(data);
     }
 
-    public sendRequest(msg: Buffer): Promise<Buffer> {
+    public sendRequest(msg: Message): Promise<Buffer> {
         return new Promise((resolve, reject) => {
             const corrId = ++this.corrIdCounter;
             this.requests.set(corrId, {
                 resolve,
                 reject,
             });
-            msg.writeUInt32BE(corrId, 8);
+            msg.setCorrelationId(corrId);
             this.sendMessage(msg);
         });
     }

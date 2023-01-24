@@ -56,8 +56,4 @@ export class DataWriter {
             this.writeInt16(-1);
         }
     }
-
-    public shift(n: number): void {
-        this.offset += n;
-    }
 }
