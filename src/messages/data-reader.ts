@@ -53,20 +53,20 @@ export class DataReader {
         return n;
     }
 
-    public readBytes(): Buffer | null {
+    public readBytes(): Buffer {
         const size = this.readInt32();
         if (size < 0) {
-            return null;
+            return Buffer.from('');
         }
         const bytes = this.data.subarray(this.offset, this.offset + size);
         this.offset += size;
         return bytes;
     }
 
-    public readString(): string | null {
+    public readString(): string {
         const size = this.readInt16();
         if (size < 0) {
-            return null;
+            return '';
         }
         const str = this.data.toString('utf8', this.offset, this.offset + size);
         this.offset += size;

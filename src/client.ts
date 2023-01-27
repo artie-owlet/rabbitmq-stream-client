@@ -1,21 +1,20 @@
 import EventEmitter from 'events';
 
 import { Connection, IConnectionOptions } from './connection';
-import { Commands, RESPONSE_CODE_OK, RESPONSE_FLAG } from './messages/constants';
+import { Commands, MAX_CORRELATION_ID, RESPONSE_FLAG } from './messages/constants';
 import { ClientMessage } from './messages/client-message';
 import { ClientRequest } from './messages/client-request';
-import { ClientResponse } from './messages/client-response';
 import { parseMessageHeader } from './messages/server-message';
 import { ServerResponse } from './messages/server-response';
 import { PeerPropertiesRequest, PeerPropertiesResponse } from './messages/peer-properties';
 import { SaslHandshakeRequest, SaslHandshakeResponse } from './messages/sasl-handshake';
 import {
-    SaslAuthenticateRequestPlain,
-    SaslAuthenticateRequestExternal,
+    PlainSaslAuthenticateRequest,
+    ExternalSaslAuthenticateRequest,
 } from './messages/sasl-authenticate';
 import { ServerTune, ClientTune } from './messages/tune';
 import { OpenRequest, OpenResponse } from './messages/open';
-import { CloseRequest } from './messages/close';
+import { CloseRequest, CloseResponse } from './messages/close';
 import { printResponse } from './print-response';
 
 export interface IClientOptions extends IConnectionOptions {
@@ -24,6 +23,7 @@ export interface IClientOptions extends IConnectionOptions {
     vhost: string;
     frameMax?: number;
     heartbeat?: number;
+    requestTimeout?: number;
     reconnectTimeoutMs: number;
     connectionName?: string;
 }
@@ -33,18 +33,23 @@ class UnsupportedVersionError extends Error {}
 interface IRequest {
     key: number;
     version: number;
+    ts: number;
     resolve: (resp: ServerResponse) => void;
     reject: (err: Error) => void;
 }
 
+const DEFAULT_REQUEST_TIMEOUT = 10;
+
 export class Client extends EventEmitter {
     private frameMax: number;
     private heartbeat: number;
+    private requestTimeoutMs: number;
 
     private conn: Connection | null = null;
     private isClosed = false;
     private corrIdCounter = 0;
     private requests = new Map<number, IRequest>();
+    private reqTimer: NodeJS.Timer;
     private serverProperties = new Map<string, string>();
     private closeReason = '';
 
@@ -54,11 +59,14 @@ export class Client extends EventEmitter {
         super();
         this.frameMax = options.frameMax || 0;
         this.heartbeat = options.heartbeat || 0;
+        this.requestTimeoutMs = (options.requestTimeout || DEFAULT_REQUEST_TIMEOUT) * 1000;
+        this.reqTimer = setInterval(this.onRequestTimeout.bind(this), this.requestTimeoutMs / 10);
         this.connect();
     }
 
     public close(): void {
         this.isClosed = true;
+        clearInterval(this.reqTimer);
         if (this.conn) {
             this.conn.close();
         }
@@ -89,7 +97,7 @@ export class Client extends EventEmitter {
     private async peerPropertiesExchange(): Promise<void> {
         const props = (await this.sendRequest(new PeerPropertiesRequest(this.options.connectionName))
         ) as PeerPropertiesResponse;
-        if (props.code !== RESPONSE_CODE_OK) {
+        if (!props.isOk) {
             throw new Error(`PeerProperties failed: ${printResponse(props.code)}`);
         }
         this.serverProperties = props.properties;
@@ -97,7 +105,7 @@ export class Client extends EventEmitter {
 
     private async authenticate(): Promise<void> {
         const handshake = (await this.sendRequest(new SaslHandshakeRequest())) as SaslHandshakeResponse;
-        if (handshake.code !== RESPONSE_CODE_OK) {
+        if (!handshake.isOk) {
             throw new Error(`SaslHandshake failed: ${printResponse(handshake.code)}`);
         }
 
@@ -107,16 +115,16 @@ export class Client extends EventEmitter {
                 throw new Error(
                     'Authentication failed: username provided but server does not support PLAIN authentication');
             }
-            req = new SaslAuthenticateRequestPlain(this.options.username, this.options.password || '');
+            req = new PlainSaslAuthenticateRequest(this.options.username, this.options.password || '');
         } else {
             if (!handshake.mechanisms.includes('EXTERNAL')) {
                 throw new Error(
                     'Authentication failed: no username provided and server does not support EXTERNAL authentication');
             }
-            req = new SaslAuthenticateRequestExternal();
+            req = new ExternalSaslAuthenticateRequest();
         }
         const auth = await this.sendRequest(req);
-        if (auth.code !== RESPONSE_CODE_OK) {
+        if (!auth.isOk) {
             throw new Error(`SaslAuthenticate failed: ${printResponse(auth.code)}`);
         }
     }
@@ -126,10 +134,14 @@ export class Client extends EventEmitter {
             if (this.conn === null) {
                 throw new Error('Client not connected');
             }
+            if (this.corrIdCounter === MAX_CORRELATION_ID) {
+                this.corrIdCounter = 0;
+            }
             const corrId = ++this.corrIdCounter;
             this.requests.set(corrId, {
                 key: req.key,
                 version: req.version,
+                ts: Date.now(),
                 resolve,
                 reject,
             });
@@ -306,7 +318,7 @@ export class Client extends EventEmitter {
     private async open(): Promise<void> {
         try {
             const res = (await this.sendRequest(new OpenRequest(this.options.vhost))) as OpenResponse;
-            if (res.code !== RESPONSE_CODE_OK) {
+            if (!res.isOk) {
                 throw new Error(`Open failed: ${printResponse(res.code)}`);
             }
             this.emit('open', res.properties, this.serverProperties);
@@ -322,7 +334,7 @@ export class Client extends EventEmitter {
 
         const closeReq = new CloseRequest(msg);
         this.closeReason = closeReq.reason;
-        this.sendMessage(new ClientResponse(closeReq, RESPONSE_CODE_OK));
+        this.sendMessage(new CloseResponse(closeReq.corrId));
         if (this.conn !== null) {
             this.conn.close();
         }
@@ -346,5 +358,15 @@ export class Client extends EventEmitter {
         if (!this.isClosed) {
             setTimeout(this.connect.bind(this), this.options.reconnectTimeoutMs);
         }
+    }
+
+    private onRequestTimeout(): void {
+        const now = Date.now();
+        this.requests.forEach((req, id) => {
+            if (now - req.ts > this.requestTimeoutMs) {
+                req.reject(new Error('Request timeout'));
+                this.requests.delete(id);
+            }
+        });
     }
 }

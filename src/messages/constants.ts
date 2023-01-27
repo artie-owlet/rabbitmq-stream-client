@@ -30,5 +30,14 @@ export enum Commands {
     StreamStats = 0x001c,
 }
 
+export const MAX_CORRELATION_ID = 0xFFFFFFFF;
 export const RESPONSE_FLAG = 0x8000;
 export const RESPONSE_CODE_OK = 0x01;
+
+export enum OffsetTypes {
+    First = 1,
+    Last = 2,
+    Next = 3,
+    Offset = 4,
+    Timestamp = 5,
+}

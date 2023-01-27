@@ -1,7 +1,7 @@
 import { Commands } from './constants';
 import { ClientRequest } from './client-request';
 
-export class SaslAuthenticateRequestPlain extends ClientRequest {
+export class PlainSaslAuthenticateRequest extends ClientRequest {
     constructor(
         private username: string,
         private password: string,
@@ -16,7 +16,7 @@ export class SaslAuthenticateRequestPlain extends ClientRequest {
     }
 }
 
-export class SaslAuthenticateRequestExternal extends ClientRequest {
+export class ExternalSaslAuthenticateRequest extends ClientRequest {
     constructor() {
         super(Commands.SaslAuthenticate, 1);
     }

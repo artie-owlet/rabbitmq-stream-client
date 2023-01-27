@@ -1,4 +1,4 @@
-import { Commands, RESPONSE_CODE_OK } from './constants';
+import { Commands } from './constants';
 import { ClientRequest } from './client-request';
 import { ServerResponse } from './server-response';
 
@@ -13,13 +13,10 @@ export class SaslHandshakeResponse extends ServerResponse {
 
     constructor(msg: Buffer) {
         super(msg);
-        if (this.code === RESPONSE_CODE_OK) {
+        if (this.isOk) {
             const size = this.reader.readArraySize();
             for (let i = 0; i < size; ++i) {
-                const m = this.reader.readString();
-                if (m !== null) {
-                    this.mechanisms.push(m);
-                }
+                this.mechanisms.push(this.reader.readString());
             }
         }
     }
