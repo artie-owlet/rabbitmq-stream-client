@@ -2,13 +2,8 @@ import EventEmitter from 'events';
 import { connect, Socket } from 'net';
 import { connect as tlsConnect, ConnectionOptions as TlsConnectionOptions, TLSSocket } from 'tls';
 
-import { Commands, RESPONSE_FLAG } from './messages/constants';
-import { Message } from './messages/message';
-
-const hbMsg = Buffer.allocUnsafe(8);
-hbMsg.writeUInt32BE(4, 0);
-hbMsg.writeUInt16BE(Commands.Heartbeat, 4);
-hbMsg.writeUInt16BE(1, 6);
+import { Commands } from './messages/constants';
+import { ClientMessage } from './messages/client-message';
 
 export interface IConnectionOptions {
     host: string;
@@ -20,10 +15,12 @@ export interface IConnectionOptions {
 
 interface IConnectionEvents {
     connect: () => void;
-    command: (key: number, version: number, msg: Buffer) => void;
+    message: (msg: Buffer) => void;
     close: () => void;
     error: (err: Error) => void;
 }
+
+const hbMsg = new ClientMessage(Commands.Heartbeat, 1).serialize();
 
 // eslint-disable-next-line @typescript-eslint/naming-convention
 export interface Connection {
@@ -35,19 +32,12 @@ export interface Connection {
     emit<E extends keyof IConnectionEvents>(event: E, ...params: Parameters<IConnectionEvents[E]>): boolean;
 }
 
-interface IRequest {
-    resolve: (msg: Buffer) => void;
-    reject: (err: Error) => void;
-}
-
 export class Connection extends EventEmitter {
     private sock: Socket | TLSSocket;
     private frameMax = 0;
     private heartbeatTimer: NodeJS.Timer | null = null;
     private dataReceived = false;
     private recvBuf: Buffer | null = null;
-    private corrIdCounter = 0;
-    private requests = new Map<number, IRequest>();
 
     constructor(
         opts: IConnectionOptions,
@@ -61,7 +51,7 @@ export class Connection extends EventEmitter {
         }
 
         this.sock.on('data', this.onData.bind(this));
-        this.sock.on('close', () => this.onClose.bind(this));
+        this.sock.on('close', this.onClose.bind(this));
         this.sock.on('error', (err: Error) => this.emit('error', err));
 
         if (opts.keepAlive !== undefined) {
@@ -87,24 +77,11 @@ export class Connection extends EventEmitter {
         }
     }
 
-    public sendMessage(msg: Message): void {
-        const data = msg.serialize();
-        if (this.frameMax > 0 && data.length > this.frameMax) {
+    public sendMessage(msg: Buffer): void {
+        if (this.frameMax > 0 && msg.length > this.frameMax) {
             throw new Error('Frame too large');
         }
-        this.sock.write(data);
-    }
-
-    public sendRequest(msg: Message): Promise<Buffer> {
-        return new Promise((resolve, reject) => {
-            const corrId = ++this.corrIdCounter;
-            this.requests.set(corrId, {
-                resolve,
-                reject,
-            });
-            msg.setCorrelationId(corrId);
-            this.sendMessage(msg);
-        });
+        this.sock.write(msg);
     }
 
     public close(): void {
@@ -129,7 +106,7 @@ export class Connection extends EventEmitter {
             if (offset + 4 + msgSize > this.recvBuf.length) {
                 break;
             }
-            this.handleMessage(this.recvBuf.subarray(offset, offset + 4 + msgSize));
+            this.emit('message', this.recvBuf.subarray(offset, offset + 4 + msgSize));
             offset += 4 + msgSize;
         }
 
@@ -137,23 +114,6 @@ export class Connection extends EventEmitter {
             this.recvBuf = null;
         } else {
             this.recvBuf = this.recvBuf.subarray(offset);
-        }
-    }
-
-    private handleMessage(msg: Buffer): void {
-        const key = msg.readUInt16BE(4);
-        if ((key & RESPONSE_FLAG) !== 0 && key !== Commands.CreditResponse) {
-            const corrId = msg.readUInt32BE(8);
-            const req = this.requests.get(corrId);
-            if (req) {
-                req.resolve(msg);
-                this.requests.delete(corrId);
-            } else {
-                this.emit('error', new Error(`Unexpected response for command ${Commands[key]}`));
-            }
-        } else if (key !== Commands.Heartbeat) {
-            const version = msg.readUInt16BE(6);
-            this.emit('command', key, version, msg);
         }
     }
 
@@ -176,12 +136,6 @@ export class Connection extends EventEmitter {
 
     private onClose(): void {
         this.stopHeartbeat();
-
-        this.requests.forEach((req) => {
-            req.reject(new Error('Connection closed'));
-        });
-        this.requests.clear();
-
         this.emit('close');
     }
 }

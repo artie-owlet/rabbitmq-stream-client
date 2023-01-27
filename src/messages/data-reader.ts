@@ -72,4 +72,8 @@ export class DataReader {
         this.offset += size;
         return str;
     }
+
+    public readArraySize(): number {
+        return this.readInt32();
+    }
 }

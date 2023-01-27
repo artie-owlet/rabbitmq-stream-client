@@ -18,104 +18,108 @@ type BigIntField = [Types.Int64 | Types.UInt64, bigint];
 type BytesField = [Types.Bytes, Buffer | null];
 type StringField = [Types.String, string | null];
 
-export class Message {
-    private size = 4;
+export class ClientMessage {
+    private size = 0;
     private fields = [] as (IntField | BigIntField | BytesField | StringField)[];
-    private corrId?: number;
 
     constructor(
-        private key: number,
-        private version: number,
+        public readonly key: number,
+        public readonly version: number,
     ) {
     }
 
-    public setCorrelationId(corrId: number): void {
-        this.corrId = corrId;
-    }
-
-    public serialize(): Buffer {
-        const msg = Buffer.allocUnsafe(this.size);
-        const dw = new DataWriter(msg);
-        dw.writeUInt32(this.size);
-        dw.writeUInt16(this.key);
-        dw.writeUInt16(this.version);
-        if (this.corrId !== undefined) {
-            dw.writeUInt32(this.corrId);
-        }
+    public serialize(corrId?: number): Buffer {
+        this.build(corrId);
+        const msg = Buffer.allocUnsafe(this.size + 4);
+        const writer = new DataWriter(msg);
+        writer.writeUInt32(this.size);
         this.fields.forEach(([t, val]) => {
             switch (t) {
                 case Types.Int8:
-                    return dw.writeInt8(val);
+                    return writer.writeInt8(val);
                 case Types.Int16:
-                    return dw.writeInt16(val);
+                    return writer.writeInt16(val);
                 case Types.Int32:
-                    return dw.writeInt32(val);
+                    return writer.writeInt32(val);
                 case Types.Int64:
-                    return dw.writeInt64(val);
+                    return writer.writeInt64(val);
                 case Types.UInt8:
-                    return dw.writeUInt8(val);
+                    return writer.writeUInt8(val);
                 case Types.UInt16:
-                    return dw.writeUInt16(val);
+                    return writer.writeUInt16(val);
                 case Types.UInt32:
-                    return dw.writeUInt32(val);
+                    return writer.writeUInt32(val);
                 case Types.UInt64:
-                    return dw.writeUInt64(val);
+                    return writer.writeUInt64(val);
                 case Types.Bytes:
-                    return dw.writeBytes(val);
+                    return writer.writeBytes(val);
                 case Types.String:
-                    return dw.writeString(val);
+                    return writer.writeString(val);
             }
         });
         return msg;
     }
 
-    public writeInt8(n: number): void {
+    protected build(corrId?: number): void {
+        this.fields.length = 0;
+        this.writeUInt16(this.key);
+        this.writeUInt16(this.version);
+        if (corrId !== undefined) {
+            this.writeUInt32(corrId);
+        }
+    }
+
+    protected writeInt8(n: number): void {
         this.size += 1;
         this.fields.push([Types.Int8, n]);
     }
 
-    public writeInt16(n: number): void {
+    protected writeInt16(n: number): void {
         this.size += 2;
         this.fields.push([Types.Int16, n]);
     }
 
-    public writeInt32(n: number): void {
+    protected writeInt32(n: number): void {
         this.size += 4;
         this.fields.push([Types.Int32, n]);
     }
 
-    public writeInt64(n: bigint): void {
+    protected writeInt64(n: bigint): void {
         this.size += 8;
         this.fields.push([Types.Int64, n]);
     }
 
-    public writeUInt8(n: number): void {
+    protected writeUInt8(n: number): void {
         this.size += 1;
         this.fields.push([Types.UInt8, n]);
     }
 
-    public writeUInt16(n: number): void {
+    protected writeUInt16(n: number): void {
         this.size += 2;
         this.fields.push([Types.UInt16, n]);
     }
 
-    public writeUInt32(n: number): void {
+    protected writeUInt32(n: number): void {
         this.size += 4;
         this.fields.push([Types.UInt32, n]);
     }
 
-    public writeUInt64(n: bigint): void {
+    protected writeUInt64(n: bigint): void {
         this.size += 8;
         this.fields.push([Types.UInt64, n]);
     }
 
-    public writeBytes(bytes: Buffer | null): void {
+    protected writeBytes(bytes: Buffer | null): void {
         this.size += 4 + (bytes !== null ? bytes.length : 0);
         this.fields.push([Types.Bytes, bytes]);
     }
 
-    public writeString(str: string | null): void {
+    protected writeString(str: string | null): void {
         this.size += 2 + (str !== null ? Buffer.byteLength(str) : 0);
         this.fields.push([Types.String, str]);
+    }
+
+    protected writeArraySize(n: number): void {
+        this.writeInt32(n);
     }
 }
