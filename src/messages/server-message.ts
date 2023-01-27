@@ -8,12 +8,10 @@ export function parseMessageHeader(msg: Buffer): [number, number] {
     ];
 }
 
-export class ServerMessage {
-    protected reader: DataReader;
-
+export class ServerMessage extends DataReader {
     constructor(
         msg: Buffer,
     ) {
-        this.reader = new DataReader(msg, 8);
+        super(msg, 8);
     }
 }

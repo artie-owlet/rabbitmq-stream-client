@@ -23,7 +23,7 @@ export class CreditResponse extends ServerMessage {
 
     constructor(msg: Buffer) {
         super(msg);
-        this.code = this.reader.readUInt16();
-        this.subId = this.reader.readUInt8();
+        this.code = this.readUInt16();
+        this.subId = this.readUInt8();
     }
 }

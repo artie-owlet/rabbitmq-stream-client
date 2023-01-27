@@ -20,11 +20,9 @@ export class OpenResponse extends ServerResponse {
 
     constructor(msg: Buffer) {
         super(msg);
-        if (this.isOk) {
-            const size = this.reader.readArraySize();
-            for (let i = 0; i < size; ++i) {
-                this.properties.set(this.reader.readString(), this.reader.readString());
-            }
+        const size = this.readArraySize();
+        for (let i = 0; i < size; ++i) {
+            this.properties.set(this.readString(), this.readString());
         }
     }
 }

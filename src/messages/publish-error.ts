@@ -11,11 +11,11 @@ export class PublishError extends ServerMessage {
 
     constructor(msg: Buffer) {
         super(msg);
-        this.pubId = this.reader.readUInt8();
-        const size = this.reader.readArraySize();
+        this.pubId = this.readUInt8();
+        const size = this.readArraySize();
         for (let i = 0; i < size; ++i) {
-            const id = this.reader.readUInt64();
-            const code = this.reader.readUInt16();
+            const id = this.readUInt64();
+            const code = this.readUInt16();
             this.errors.push({
                 id,
                 code,

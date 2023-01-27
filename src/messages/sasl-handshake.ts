@@ -13,11 +13,9 @@ export class SaslHandshakeResponse extends ServerResponse {
 
     constructor(msg: Buffer) {
         super(msg);
-        if (this.isOk) {
-            const size = this.reader.readArraySize();
-            for (let i = 0; i < size; ++i) {
-                this.mechanisms.push(this.reader.readString());
-            }
+        const size = this.readArraySize();
+        for (let i = 0; i < size; ++i) {
+            this.mechanisms.push(this.readString());
         }
     }
 }

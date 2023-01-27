@@ -7,6 +7,6 @@ export class ServerRequest extends ServerMessage {
         msg: Buffer,
     ) {
         super(msg);
-        this.corrId = this.reader.readUInt32();
+        this.corrId = this.readUInt32();
     }
 }

@@ -1,17 +1,17 @@
-import { RESPONSE_CODE_OK } from './constants';
-import { ServerMessage } from './server-message';
+import { DataReader } from './data-reader';
 
-export class ServerResponse extends ServerMessage {
-    public readonly corrId: number;
-    public readonly code: number;
-    public readonly isOk: boolean;
+export function parseResponseHeader(msg: Buffer): [number, number] {
+    const reader = new DataReader(msg, 8);
+    return [
+        reader.readUInt32(),
+        reader.readUInt16(),
+    ];
+}
 
+export class ServerResponse extends DataReader {
     constructor(
         msg: Buffer,
     ) {
-        super(msg);
-        this.corrId = this.reader.readUInt32();
-        this.code = this.reader.readUInt16();
-        this.isOk = this.code === RESPONSE_CODE_OK;
+        super(msg, 16);
     }
 }

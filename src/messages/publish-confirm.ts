@@ -6,10 +6,10 @@ export class PublishConfirm extends ServerMessage {
 
     constructor(msg: Buffer) {
         super(msg);
-        this.pubId = this.reader.readUInt8();
-        const size = this.reader.readArraySize();
+        this.pubId = this.readUInt8();
+        const size = this.readArraySize();
         for (let i = 0; i < size; ++i) {
-            this.msgIds.push(this.reader.readUInt64());
+            this.msgIds.push(this.readUInt64());
         }
     }
 }

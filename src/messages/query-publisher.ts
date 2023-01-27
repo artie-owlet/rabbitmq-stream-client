@@ -22,10 +22,6 @@ export class QueryPublisherResponse extends ServerResponse {
 
     constructor(msg: Buffer) {
         super(msg);
-        if (this.isOk) {
-            this.seq = this.reader.readUInt64();
-        } else {
-            this.seq = 0n;
-        }
+        this.seq = this.readUInt64();
     }
 }

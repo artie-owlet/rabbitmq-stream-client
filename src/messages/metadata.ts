@@ -32,30 +32,30 @@ export class MetadataResponse extends ServerResponse {
 
     constructor(msg: Buffer) {
         super(msg);
-        if (this.isOk) {
-            const bSize = this.reader.readArraySize();
-            for (let i = 0; i < bSize; ++i) {
-                this.brokers.set(this.reader.readUInt16(), {
-                    host: this.reader.readString(),
-                    port: this.reader.readUInt32(),
-                });
+
+        const bSize = this.readArraySize();
+        for (let i = 0; i < bSize; ++i) {
+            this.brokers.set(this.readUInt16(), {
+                host: this.readString(),
+                port: this.readUInt32(),
+            });
+        }
+
+        const smSize = this.readArraySize();
+        for (let i = 0; i < smSize; ++i) {
+            const stream = this.readString();
+            const code = this.readUInt16();
+            const leaderRef = this.readUInt16();
+            const size = this.readArraySize();
+            const replicasRefs = [] as number[];
+            for (let j = 0; j < size; ++j) {
+                replicasRefs.push(this.readUInt16());
             }
-            const smSize = this.reader.readArraySize();
-            for (let i = 0; i < smSize; ++i) {
-                const stream = this.reader.readString();
-                const code = this.reader.readUInt16();
-                const leaderRef = this.reader.readUInt16();
-                const size = this.reader.readArraySize();
-                const replicasRefs = [] as number[];
-                for (let j = 0; j < size; ++j) {
-                    replicasRefs.push(this.reader.readUInt16());
-                }
-                this.streamsMetadata.set(stream, {
-                    code,
-                    leaderRef,
-                    replicasRefs,
-                });
-            }
+            this.streamsMetadata.set(stream, {
+                code,
+                leaderRef,
+                replicasRefs,
+            });
         }
     }
 }

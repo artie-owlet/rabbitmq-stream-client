@@ -22,10 +22,6 @@ export class QueryOffsetResponse extends ServerResponse {
 
     constructor(msg: Buffer) {
         super(msg);
-        if (this.isOk) {
-            this.offset = this.reader.readUInt64();
-        } else {
-            this.offset = 0n;
-        }
+        this.offset = this.readUInt64();
     }
 }

@@ -8,8 +8,8 @@ export class ServerTune extends ServerMessage {
 
     constructor(msg: Buffer) {
         super(msg);
-        this.frameMax = this.reader.readUInt32();
-        this.heartbeat = this.reader.readUInt32();
+        this.frameMax = this.readUInt32();
+        this.heartbeat = this.readUInt32();
     }
 }
 

@@ -6,7 +6,7 @@ export class MetadataUpdate extends ServerMessage {
 
     constructor(msg: Buffer) {
         super(msg);
-        this.code = this.reader.readUInt16();
-        this.stream = this.reader.readString();
+        this.code = this.readUInt16();
+        this.stream = this.readString();
     }
 }

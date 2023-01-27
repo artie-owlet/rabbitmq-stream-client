@@ -1,11 +1,11 @@
 import EventEmitter from 'events';
 
 import { Connection, IConnectionOptions } from './connection';
-import { Commands, MAX_CORRELATION_ID, RESPONSE_FLAG } from './messages/constants';
+import { Commands, MAX_CORRELATION_ID, RESPONSE_CODE_OK, RESPONSE_FLAG } from './messages/constants';
 import { ClientMessage } from './messages/client-message';
 import { ClientRequest } from './messages/client-request';
 import { parseMessageHeader } from './messages/server-message';
-import { ServerResponse } from './messages/server-response';
+import { parseResponseHeader } from './messages/server-response';
 import { PeerPropertiesRequest, PeerPropertiesResponse } from './messages/peer-properties';
 import { SaslHandshakeRequest, SaslHandshakeResponse } from './messages/sasl-handshake';
 import {
@@ -34,7 +34,7 @@ interface IRequest {
     key: number;
     version: number;
     ts: number;
-    resolve: (resp: ServerResponse) => void;
+    resolve: (resp: Buffer) => void;
     reject: (err: Error) => void;
 }
 
@@ -95,19 +95,13 @@ export class Client extends EventEmitter {
     }
 
     private async peerPropertiesExchange(): Promise<void> {
-        const props = (await this.sendRequest(new PeerPropertiesRequest(this.options.connectionName))
-        ) as PeerPropertiesResponse;
-        if (!props.isOk) {
-            throw new Error(`PeerProperties failed: ${printResponse(props.code)}`);
-        }
+        const props = new PeerPropertiesResponse(
+            await this.sendRequest(new PeerPropertiesRequest(this.options.connectionName)));
         this.serverProperties = props.properties;
     }
 
     private async authenticate(): Promise<void> {
-        const handshake = (await this.sendRequest(new SaslHandshakeRequest())) as SaslHandshakeResponse;
-        if (!handshake.isOk) {
-            throw new Error(`SaslHandshake failed: ${printResponse(handshake.code)}`);
-        }
+        const handshake = new SaslHandshakeResponse(await this.sendRequest(new SaslHandshakeRequest()));
 
         let req: ClientRequest;
         if (this.options.username !== undefined) {
@@ -123,13 +117,10 @@ export class Client extends EventEmitter {
             }
             req = new ExternalSaslAuthenticateRequest();
         }
-        const auth = await this.sendRequest(req);
-        if (!auth.isOk) {
-            throw new Error(`SaslAuthenticate failed: ${printResponse(auth.code)}`);
-        }
+        await this.sendRequest(req);
     }
 
-    private sendRequest(req: ClientRequest): Promise<ServerResponse> {
+    private async sendRequest(req: ClientRequest): Promise<Buffer> {
         return new Promise((resolve, reject) => {
             if (this.conn === null) {
                 throw new Error('Client not connected');
@@ -167,56 +158,23 @@ export class Client extends EventEmitter {
 
     private onResponse(key: number, version: number, msg: Buffer): void {
         try {
-            const resp = this.parseServerResponse(key, version, msg);
-            const req = this.requests.get(resp.corrId);
+            const [corrId, code] = parseResponseHeader(msg);
+            const req = this.requests.get(corrId);
             if (req) {
                 if (req.key !== key || req.version !== version) {
                     throw new Error('Response key or version mismatch');
                 }
-                req.resolve(resp);
-                this.requests.delete(resp.corrId);
+                if (code === RESPONSE_CODE_OK) {
+                    req.resolve(msg);
+                } else {
+                    req.reject(new Error(`${Commands[key]} failed: ${printResponse(code)}`));
+                }
+                this.requests.delete(corrId);
             } else {
                 throw new Error(`Unexpected response for command ${Commands[key]}`);
             }
         } catch (err) {
             this.emit('error', err instanceof Error ? err : new Error(String(err)));
-        }
-    }
-
-    private parseServerResponse(key: number, _/*version*/: number, msg: Buffer): ServerResponse {
-        switch (key) {
-            case Commands.DeclarePublisher:
-            case Commands.DeletePublisher:
-            case Commands.Unsubscribe:
-            case Commands.Create:
-            case Commands.Delete:
-            case Commands.SaslAuthenticate:
-            case Commands.Close:
-                return new ServerResponse(msg);
-            // case Commands.QueryPublisherSequence:
-            //     return new (msg);
-            // case Commands.Subscribe:
-            //     return new (msg);
-            // case Commands.QueryOffset:
-            //     return new (msg);
-            // case Commands.Metadata:
-            //     return new (msg);
-            case Commands.PeerProperties:
-                return new PeerPropertiesResponse(msg);
-            case Commands.SaslHandshake:
-                return new SaslHandshakeResponse(msg);
-            case Commands.Open:
-                return new OpenResponse(msg);
-            // case Commands.Route:
-            //     return new (msg);
-            // case Commands.Partitions:
-            //     return new (msg);
-            // case Commands.ExchangeCommandVersions:
-            //     return new (msg);
-            // case Commands.StreamStats:
-            //     return new (msg);
-            default:
-                throw new Error(`Unknown server response, key=${key}`);
         }
     }
 
@@ -317,10 +275,7 @@ export class Client extends EventEmitter {
 
     private async open(): Promise<void> {
         try {
-            const res = (await this.sendRequest(new OpenRequest(this.options.vhost))) as OpenResponse;
-            if (!res.isOk) {
-                throw new Error(`Open failed: ${printResponse(res.code)}`);
-            }
+            const res = new OpenResponse(await this.sendRequest(new OpenRequest(this.options.vhost)));
             this.emit('open', res.properties, this.serverProperties);
         } catch (err) {
             this.emit('error', err instanceof Error ? err : new Error(String(err)));

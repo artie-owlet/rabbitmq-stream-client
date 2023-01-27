@@ -7,7 +7,7 @@ export class CloseRequest extends ServerRequest {
 
     constructor(msg: Buffer) {
         super(msg);
-        this.reason = this.reader.readString();
+        this.reason = this.readString();
     }
 }
 
