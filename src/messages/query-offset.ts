@@ -18,10 +18,10 @@ export class QueryOffsetRequest extends ClientRequest {
 }
 
 export class QueryOffsetResponse extends ServerResponse {
-    public readonly offset: bigint;
+    public readonly offsetValue: bigint;
 
     constructor(msg: Buffer) {
         super(msg);
-        this.offset = this.readUInt64();
+        this.offsetValue = this.readUInt64();
     }
 }

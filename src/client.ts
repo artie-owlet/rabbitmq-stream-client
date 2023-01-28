@@ -2,10 +2,26 @@ import EventEmitter from 'events';
 
 import { Connection, IConnectionOptions } from './connection';
 import { Commands, MAX_CORRELATION_ID, RESPONSE_CODE_OK, RESPONSE_FLAG } from './messages/constants';
+import { Offset } from './messages/offset';
 import { ClientMessage } from './messages/client-message';
 import { ClientRequest } from './messages/client-request';
 import { parseMessageHeader } from './messages/server-message';
 import { parseResponseHeader } from './messages/server-response';
+import { DeclarePublisherRequest } from './messages/declare-publisher';
+import { Publish } from './messages/publish';
+import { PublishConfirm } from './messages/publish-confirm';
+import { PublishError, IPublishingError } from './messages/publish-error';
+import { QueryPublisherRequest, QueryPublisherResponse } from './messages/query-publisher';
+import { DeletePublisherRequest } from './messages/delete-publisher';
+import { SubscribeRequest } from './messages/subscribe';
+import { Credit, CreditResponse } from './messages/credit';
+import { StoreOffset } from './messages/store-offset';
+import { QueryOffsetRequest, QueryOffsetResponse } from './messages/query-offset';
+import { UnsubscribeRequest } from './messages/unsubscribe';
+import { CreateRequest } from './messages/create';
+import { DeleteRequest } from './messages/delete';
+import { MetadataRequest, MetadataResponse, IStreamMetadata } from './messages/metadata';
+import { MetadataUpdate } from './messages/metadata-update';
 import { PeerPropertiesRequest, PeerPropertiesResponse } from './messages/peer-properties';
 import { SaslHandshakeRequest, SaslHandshakeResponse } from './messages/sasl-handshake';
 import {
@@ -15,6 +31,13 @@ import {
 import { ServerTune, ClientTune } from './messages/tune';
 import { OpenRequest, OpenResponse } from './messages/open';
 import { CloseRequest, CloseResponse } from './messages/close';
+import { RouteRequest, RouteResponse } from './messages/route';
+import { PartitionsRequest, PartitionsResponse } from './messages/partitions';
+import {
+    ConsumerUpdateRequest,
+    ConsumerUpdateResponseOk,
+    ConsumerUpdateResponseNoStream,
+} from './messages/consumer-update';
 import { printResponse } from './print-response';
 
 export interface IClientOptions extends IConnectionOptions {
@@ -38,7 +61,33 @@ interface IRequest {
     reject: (err: Error) => void;
 }
 
+export interface IConsumerUpdateResolver {
+    response: (offset: Offset) => void;
+    reject: () => void;
+}
+
 const DEFAULT_REQUEST_TIMEOUT = 10;
+
+interface IClientEvents {
+    open: (properties: Map<string, string>) => void;
+    publishConfirm: (pubId: number, msgIds: bigint[]) => void;
+    publishError: (pubId: number, errors: IPublishingError[]) => void;
+    creditError: (subId: number, code: number) => void;
+    metadataUpdate: (stream: string, code: number) => void;
+    consumerUpdate: (res: IConsumerUpdateResolver) => void;
+    close: (reason: string) => void;
+    error: (err: Error) => void;
+}
+
+// eslint-disable-next-line @typescript-eslint/naming-convention
+export interface Client {
+    on<E extends keyof IClientEvents>(event: E, listener: IClientEvents[E]): this;
+    once<E extends keyof IClientEvents>(event: E, listener: IClientEvents[E]): this;
+    addListener<E extends keyof IClientEvents>(event: E, listener: IClientEvents[E]): this;
+    prependListener<E extends keyof IClientEvents>(event: E, listener: IClientEvents[E]): this;
+    prependOnceListener<E extends keyof IClientEvents>(event: E, listener: IClientEvents[E]): this;
+    emit<E extends keyof IClientEvents>(event: E, ...params: Parameters<IClientEvents[E]>): boolean;
+}
 
 export class Client extends EventEmitter {
     private frameMax: number;
@@ -62,6 +111,78 @@ export class Client extends EventEmitter {
         this.requestTimeoutMs = (options.requestTimeout || DEFAULT_REQUEST_TIMEOUT) * 1000;
         this.reqTimer = setInterval(this.onRequestTimeout.bind(this), this.requestTimeoutMs / 10);
         this.connect();
+    }
+
+    public async declarePublisher(pubId: number, pubRef: string, stream: string): Promise<void> {
+        await this.sendRequest(new DeclarePublisherRequest(pubId, pubRef, stream));
+    }
+
+    public publish(pubId: number, msgId: bigint, msg: Buffer): void;
+    public publish(pubId: number, msgs: [bigint, Buffer][]): void;
+    public publish(pubId: number, ...args: any[]): void {
+        const cmd = new Publish(pubId);
+        if (typeof args[0] === 'bigint') {
+            cmd.addMessage(args[0], args[1] as Buffer);
+        } else {
+            (args as [bigint, Buffer][]).forEach(([id, msg]) => {
+                cmd.addMessage(id, msg);
+            });
+        }
+        this.sendMessage(cmd);
+    }
+
+    public async queryPublisherSequence(pubRef: string, stream: string): Promise<bigint> {
+        const res = new QueryPublisherResponse(await this.sendRequest(new QueryPublisherRequest(pubRef, stream)));
+        return res.seq;
+    }
+
+    public async deletePublisher(pubId: number): Promise<void> {
+        await this.sendRequest(new DeletePublisherRequest(pubId));
+    }
+
+    public async subscribe(subId: number, stream: string, offset: Offset, credit: number,
+        properties: Map<string, string>): Promise<void> {
+        await this.sendRequest(new SubscribeRequest(subId, stream, offset, credit, properties));
+    }
+
+    public credit(subId: number, credit: number): void {
+        this.sendMessage(new Credit(subId, credit));
+    }
+
+    public storeOffset(ref: string, stream: string, offsetValue: bigint): void {
+        this.sendMessage(new StoreOffset(ref, stream, offsetValue));
+    }
+
+    public async queryOffset(ref: string, stream: string): Promise<bigint> {
+        const res = new QueryOffsetResponse(await this.sendRequest(new QueryOffsetRequest(ref, stream)));
+        return res.offsetValue;
+    }
+
+    public async unsubscribe(subId: number): Promise<void> {
+        await this.sendRequest(new UnsubscribeRequest(subId));
+    }
+
+    public async create(stream: string, args: Map<string, string>): Promise<void> {
+        await this.sendRequest(new CreateRequest(stream, args));
+    }
+
+    public async delete(stream: string): Promise<void> {
+        await this.sendRequest(new DeleteRequest(stream));
+    }
+
+    public async metadata(streams: string[]): Promise<Map<string, IStreamMetadata>> {
+        const res = new MetadataResponse(await this.sendRequest(new MetadataRequest(streams)));
+        return res.streamsMetadata;
+    }
+
+    public async route(routingKey: string, superStream: string): Promise<string[]> {
+        const res = new RouteResponse(await this.sendRequest(new RouteRequest(routingKey, superStream)));
+        return res.streams;
+    }
+
+    public async partitions(superStream: string): Promise<string[]> {
+        const res = new PartitionsResponse(await this.sendRequest(new PartitionsRequest(superStream)));
+        return res.streams;
     }
 
     public close(): void {
@@ -149,7 +270,9 @@ export class Client extends EventEmitter {
 
     private onMessage(msg: Buffer): void {
         const [key, version] = parseMessageHeader(msg);
-        if ((key & RESPONSE_FLAG) !== 0 && key !== Commands.CreditResponse) {
+        if ((key & RESPONSE_FLAG) !== 0 &&
+            key !== Commands.CreditResponse &&
+            key !== Commands.MetadataResponse) {
             this.onResponse(key & (0xFFFF ^ RESPONSE_FLAG), version, msg);
         } else if (key !== Commands.Heartbeat) {
             this.onCommand(key, version, msg);
@@ -181,22 +304,24 @@ export class Client extends EventEmitter {
     private onCommand(key: number, version: number, msg: Buffer): void {
         try {
             switch (key) {
-                // case Commands.PublishConfirm:
-                //     return this.onPublishConfirm(version, msg);
-                // case Commands.PublishError:
-                //     return this.onPublishError(version, msg);
+                case Commands.PublishConfirm:
+                    return this.onPublishConfirm(version, msg);
+                case Commands.PublishError:
+                    return this.onPublishError(version, msg);
                 // case Commands.Deliver:
                 //     return this.onDeliver(version, msg);
-                // case Commands.CreditResponse:
-                //     return this.onCreditResponse(version, msg);
-                // case Commands.MetadataUpdate:
-                //     return this.onMetadataUpdate(version, msg);
+                case Commands.CreditResponse:
+                    return this.onCreditResponse(version, msg);
+                case Commands.MetadataResponse:
+                    return this.onMetadataResponse(version, msg);
+                case Commands.MetadataUpdate:
+                    return this.onMetadataUpdate(version, msg);
                 case Commands.Tune:
                     return this.onTune(version, msg);
                 case Commands.Close:
                     return this.onServerClose(version, msg);
-                // case Commands.ConsumerUpdate:
-                //     return this.onConsumerUpdate(version, msg);
+                case Commands.ConsumerUpdate:
+                    return this.onConsumerUpdate(version, msg);
                 default:
                     throw new Error(`Unknown server command, key=${key}`);
             }
@@ -209,17 +334,23 @@ export class Client extends EventEmitter {
         }
     }
 
-    // private onPublishConfirm(version: number, msg: Buffer): void {
-    //     if (version !== 1) {
-    //         throw new UnsupportedVersionError();
-    //     }
-    // }
+    private onPublishConfirm(version: number, msg: Buffer): void {
+        if (version !== 1) {
+            throw new UnsupportedVersionError();
+        }
 
-    // private onPublishError(version: number, msg: Buffer): void {
-    //     if (version !== 1) {
-    //         throw new UnsupportedVersionError();
-    //     }
-    // }
+        const conf = new PublishConfirm(msg);
+        this.emit('publishConfirm', conf.pubId, conf.msgIds);
+    }
+
+    private onPublishError(version: number, msg: Buffer): void {
+        if (version !== 1) {
+            throw new UnsupportedVersionError();
+        }
+
+        const err = new PublishError(msg);
+        this.emit('publishError', err.pubId, err.errors);
+    }
 
     // private onDeliver(version: number, msg: Buffer): void {
     //     if (version === 1) {
@@ -237,17 +368,40 @@ export class Client extends EventEmitter {
     // private onDeliverV2(msg: Buffer): void {
     // }
 
-    // private onCreditResponse(version: number, msg: Buffer): void {
-    //     if (version !== 1) {
-    //         throw new UnsupportedVersionError();
-    //     }
-    // }
+    private onCreditResponse(version: number, msg: Buffer): void {
+        if (version !== 1) {
+            throw new UnsupportedVersionError();
+        }
 
-    // private onMetadataUpdate(version: number, msg: Buffer): void {
-    //     if (version !== 1) {
-    //         throw new UnsupportedVersionError();
-    //     }
-    // }
+        const res = new CreditResponse(msg);
+        if (res.code !== RESPONSE_CODE_OK) {
+            this.emit('creditError', res.subId, res.code);
+        }
+    }
+
+    private onMetadataResponse(version: number, msg: Buffer): void {
+        if (version !== 1) {
+            throw new UnsupportedVersionError();
+        }
+
+        const corrId = MetadataResponse.getCorrelationId(msg);
+        const req = this.requests.get(corrId);
+        if (req) {
+            req.resolve(msg);
+            this.requests.delete(corrId);
+        } else {
+            throw new Error('Unexpected response for command Metadata');
+        }
+    }
+
+    private onMetadataUpdate(version: number, msg: Buffer): void {
+        if (version !== 1) {
+            throw new UnsupportedVersionError();
+        }
+
+        const upd = new MetadataUpdate(msg);
+        this.emit('metadataUpdate', upd.stream, upd.code);
+    }
 
     private onTune(version: number, msg: Buffer): void {
         if (version !== 1) {
@@ -276,7 +430,8 @@ export class Client extends EventEmitter {
     private async open(): Promise<void> {
         try {
             const res = new OpenResponse(await this.sendRequest(new OpenRequest(this.options.vhost)));
-            this.emit('open', res.properties, this.serverProperties);
+            this.serverProperties.forEach((value, key) => res.properties.set(key, value));
+            this.emit('open', res.properties);
         } catch (err) {
             this.emit('error', err instanceof Error ? err : new Error(String(err)));
         }
@@ -295,11 +450,21 @@ export class Client extends EventEmitter {
         }
     }
 
-    // private onConsumerUpdate(version: number, msg: Buffer): void {
-    //     if (version !== 1) {
-    //         throw new UnsupportedVersionError();
-    //     }
-    // }
+    private onConsumerUpdate(version: number, msg: Buffer): void {
+        if (version !== 1) {
+            throw new UnsupportedVersionError();
+        }
+
+        const req = new ConsumerUpdateRequest(msg);
+        this.emit('consumerUpdate', {
+            response: (offset: Offset) => {
+                this.sendMessage(new ConsumerUpdateResponseOk(req.corrId, offset));
+            },
+            reject: () => {
+                this.sendMessage(new ConsumerUpdateResponseNoStream(req.corrId));
+            }
+        });
+    }
 
     private onClose(): void {
         this.requests.forEach((req) => {

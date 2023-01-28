@@ -7,7 +7,6 @@ import { ServerResponse } from './server-response';
 export class PeerPropertiesRequest extends ClientRequest {
     private props = new Map([
         ['product', '@artie-owlet/rabbitmq-stream-client'],
-        ['version', process.env['npm_package_version'] || ''],
         ['platform', `Node.js ${process.version}`]
     ]);
 

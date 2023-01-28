@@ -5,7 +5,7 @@ export class StoreOffset extends ClientMessage {
     constructor(
         private ref: string,
         private stream: string,
-        private offset: bigint,
+        private offsetValue: bigint,
     ) {
         super(Commands.StoreOffset, 1);
     }
@@ -14,6 +14,6 @@ export class StoreOffset extends ClientMessage {
         super.build();
         this.writeString(this.ref);
         this.writeString(this.stream);
-        this.writeUInt64(this.offset);
+        this.writeUInt64(this.offsetValue);
     }
 }

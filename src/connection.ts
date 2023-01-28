@@ -65,7 +65,7 @@ export class Connection extends EventEmitter {
             this.sock.setNoDelay(opts.noDelay);
         }
 
-        this.on('message', (msg) => console.log('RECV', msg));
+        this.on('message', (msg) => console.log('RECV', msg.toString('hex')));
     }
 
     public setFrameMax(frameMax: number): void {
@@ -80,7 +80,7 @@ export class Connection extends EventEmitter {
     }
 
     public sendMessage(msg: Buffer): void {
-        console.log('SEND', msg);
+        console.log('SEND', msg.toString('hex'));
         if (this.frameMax > 0 && msg.length > this.frameMax) {
             throw new Error('Frame too large');
         }

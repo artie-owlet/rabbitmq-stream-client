@@ -76,4 +76,8 @@ export class DataReader {
     public readArraySize(): number {
         return this.readInt32();
     }
+
+    public skip(n: number): void {
+        this._offset += n;
+    }
 }

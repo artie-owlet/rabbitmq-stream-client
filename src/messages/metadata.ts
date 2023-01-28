@@ -1,41 +1,41 @@
-import { Commands } from './constants';
+import { Commands, RESPONSE_CODE_OK } from './constants';
 import { ClientRequest } from './client-request';
-import { ServerResponse } from './server-response';
+import { DataReader } from './data-reader';
 
 export class MetadataRequest extends ClientRequest {
     constructor(
-        private stream: string,
+        private streams: string[],
     ) {
         super(Commands.Metadata, 1);
     }
 
     protected override build(corrId: number): void {
         super.build(corrId);
-        this.writeString(this.stream);
+        this.writeArraySize(this.streams.length);
+        this.streams.forEach((s) => this.writeString(s));
     }
 }
 
-export interface IBroker {
+interface IBroker {
     host: string;
     port: number;
 }
 
 export interface IStreamMetadata {
-    code: number;
-    leaderRef: number;
-    replicasRefs: number[];
+    leader: IBroker;
+    replicas: IBroker[];
 }
 
-export class MetadataResponse extends ServerResponse {
-    public readonly brokers = new Map<number, IBroker>();
+export class MetadataResponse extends DataReader {
     public readonly streamsMetadata = new Map<string, IStreamMetadata>();
 
     constructor(msg: Buffer) {
-        super(msg);
+        super(msg, 12);
 
         const bSize = this.readArraySize();
+        const brokers = new Map<number, IBroker>();
         for (let i = 0; i < bSize; ++i) {
-            this.brokers.set(this.readUInt16(), {
+            brokers.set(this.readUInt16(), {
                 host: this.readString(),
                 port: this.readUInt32(),
             });
@@ -45,17 +45,33 @@ export class MetadataResponse extends ServerResponse {
         for (let i = 0; i < smSize; ++i) {
             const stream = this.readString();
             const code = this.readUInt16();
-            const leaderRef = this.readUInt16();
-            const size = this.readArraySize();
-            const replicasRefs = [] as number[];
-            for (let j = 0; j < size; ++j) {
-                replicasRefs.push(this.readUInt16());
+            if (code !== RESPONSE_CODE_OK) {
+                this.skip(6);
+                continue;
             }
+
+            const leader = brokers.get(this.readUInt16());
+            if (!leader) {
+                throw new Error('Failed to parse Metadata response');
+            }
+
+            const size = this.readArraySize();
+            const replicas = [] as IBroker[];
+            for (let j = 0; j < size; ++j) {
+                const broker = brokers.get(this.readUInt16());
+                if (broker) {
+                    replicas.push(broker);
+                }
+            }
+
             this.streamsMetadata.set(stream, {
-                code,
-                leaderRef,
-                replicasRefs,
+                leader,
+                replicas,
             });
         }
+    }
+
+    public static getCorrelationId(msg: Buffer): number {
+        return new DataReader(msg, 8).readUInt32();
     }
 }

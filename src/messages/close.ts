@@ -1,6 +1,6 @@
 import { Commands, RESPONSE_CODE_OK } from './constants';
 import { ServerRequest } from './server-request';
-import { ClientMessage } from './client-message';
+import { ClientResponse } from './client-response';
 
 export class CloseRequest extends ServerRequest {
     public readonly reason: string;
@@ -11,16 +11,10 @@ export class CloseRequest extends ServerRequest {
     }
 }
 
-export class CloseResponse extends ClientMessage {
+export class CloseResponse extends ClientResponse {
     constructor(
-        private corrId: number,
+        corrId: number,
     ) {
-        super(Commands.Close, 1);
-    }
-
-    protected override build(): void {
-        super.build();
-        this.writeUInt32(this.corrId);
-        this.writeUInt16(RESPONSE_CODE_OK);
+        super(Commands.Close, 1, corrId, RESPONSE_CODE_OK);
     }
 }

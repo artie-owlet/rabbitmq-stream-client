@@ -12,6 +12,6 @@ export class ServerResponse extends DataReader {
     constructor(
         msg: Buffer,
     ) {
-        super(msg, 16);
+        super(msg, 14);
     }
 }
