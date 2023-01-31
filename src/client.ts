@@ -14,6 +14,7 @@ import { PublishError, IPublishingError } from './messages/publish-error';
 import { QueryPublisherRequest, QueryPublisherResponse } from './messages/query-publisher';
 import { DeletePublisherRequest } from './messages/delete-publisher';
 import { SubscribeRequest } from './messages/subscribe';
+import { Deliver } from './messages/deliver';
 import { Credit, CreditResponse } from './messages/credit';
 import { StoreOffset } from './messages/store-offset';
 import { QueryOffsetRequest, QueryOffsetResponse } from './messages/query-offset';
@@ -66,12 +67,17 @@ export interface IConsumerUpdateResolver {
     reject: () => void;
 }
 
+function hex(n: number): string {
+    return n.toString(16).padStart(4, '0');
+}
+
 const DEFAULT_REQUEST_TIMEOUT = 10;
 
 interface IClientEvents {
     open: (properties: Map<string, string>) => void;
     publishConfirm: (pubId: number, msgIds: bigint[]) => void;
     publishError: (pubId: number, errors: IPublishingError[]) => void;
+    deliver: (messages: Buffer[]) => void;
     creditError: (subId: number, code: number) => void;
     metadataUpdate: (stream: string, code: number) => void;
     consumerUpdate: (res: IConsumerUpdateResolver) => void;
@@ -308,8 +314,8 @@ export class Client extends EventEmitter {
                     return this.onPublishConfirm(version, msg);
                 case Commands.PublishError:
                     return this.onPublishError(version, msg);
-                // case Commands.Deliver:
-                //     return this.onDeliver(version, msg);
+                case Commands.Deliver:
+                    return this.onDeliver(version, msg);
                 case Commands.CreditResponse:
                     return this.onCreditResponse(version, msg);
                 case Commands.MetadataResponse:
@@ -323,7 +329,7 @@ export class Client extends EventEmitter {
                 case Commands.ConsumerUpdate:
                     return this.onConsumerUpdate(version, msg);
                 default:
-                    throw new Error(`Unknown server command, key=${key}`);
+                    throw new Error(`Unknown server command, key=${hex(key)}`);
             }
         } catch (err) {
             if (err instanceof UnsupportedVersionError) {
@@ -352,21 +358,22 @@ export class Client extends EventEmitter {
         this.emit('publishError', err.pubId, err.errors);
     }
 
-    // private onDeliver(version: number, msg: Buffer): void {
-    //     if (version === 1) {
-    //         this.onDeliverV1(data);
-    //     } else if (version === 2) {
-    //         this.onDeliverV2(data);
-    //     } else {
-    //         throw new UnsupportedVersionError();
-    //     }
-    // }
+    private onDeliver(version: number, msg: Buffer): void {
+        if (version !== 1 && version !== 2) {
+            throw new UnsupportedVersionError();
+        }
 
-    // private onDeliverV1(msg: Buffer): void {
-    // }
+        void this.handleDeliver(version, msg);
+    }
 
-    // private onDeliverV2(msg: Buffer): void {
-    // }
+    private async handleDeliver(version: 1 | 2, msg: Buffer): Promise<void> {
+        try {
+            const messages = await Deliver.parse(msg, version, false);
+            this.emit('deliver', messages);
+        } catch (err) {
+            this.emit('error', err instanceof Error ? err : new Error(`Failed to parse Deliver: ${String(err)}`));
+        }
+    }
 
     private onCreditResponse(version: number, msg: Buffer): void {
         if (version !== 1) {

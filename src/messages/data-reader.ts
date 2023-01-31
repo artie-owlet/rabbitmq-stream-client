@@ -5,6 +5,10 @@ export class DataReader {
     ) {
     }
 
+    protected getOffset(): number {
+        return this._offset;
+    }
+
     public readInt8(): number {
         const n = this._data.readInt8(this._offset);
         this._offset += 1;
@@ -58,6 +62,9 @@ export class DataReader {
         if (size < 0) {
             return Buffer.from('');
         }
+        if (this._offset + size > this._data.length) {
+            throw new Error('Failed to read bytes');
+        }
         const bytes = this._data.subarray(this._offset, this._offset + size);
         this._offset += size;
         return bytes;
@@ -68,6 +75,9 @@ export class DataReader {
         if (size < 0) {
             return '';
         }
+        if (this._offset + size > this._data.length) {
+            throw new Error('Failed to read string');
+        }
         const str = this._data.toString('utf8', this._offset, this._offset + size);
         this._offset += size;
         return str;
@@ -77,7 +87,11 @@ export class DataReader {
         return this.readInt32();
     }
 
-    public skip(n: number): void {
+    public shift(n: number): void {
         this._offset += n;
+    }
+
+    public unshift(n: number): void {
+        this._offset -= n;
     }
 }

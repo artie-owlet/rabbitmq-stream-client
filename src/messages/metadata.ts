@@ -46,7 +46,7 @@ export class MetadataResponse extends DataReader {
             const stream = this.readString();
             const code = this.readUInt16();
             if (code !== RESPONSE_CODE_OK) {
-                this.skip(6);
+                this.shift(6);
                 continue;
             }
 

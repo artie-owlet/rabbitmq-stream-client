@@ -12,17 +12,13 @@ const cli = new Client({
 cli.on('open', async (props) => {
     console.log('OPEN', props);
     try {
-        await cli.create('test-stream', new Map());
-        await cli.subscribe(1, 'test-stream', {
-            type: OffsetTypes.Next,
-        }, 2, new Map());
-        await cli.declarePublisher(1, 'test-pub', 'test-stream');
-        cli.publish(1, 1n, Buffer.from('XXXXXXXXXXXXX'));
+        await cli.subscribe(1, 'test-stream', {type: OffsetTypes.Next}, 2, new Map());
         console.log('OK');
     } catch (err) {
         console.log(err);
     }
 });
+cli.on('deliver', (msgs) => msgs.forEach((msg) => console.log('DELIVER', msg.toString())));
 cli.on('close', () => console.log('CLOSE'));
 cli.on('error', (err: Error) => console.log('ERROR', err));
 // setTimeout(() => cli.close(), 3000);

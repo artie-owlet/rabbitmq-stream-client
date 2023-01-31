@@ -4,9 +4,18 @@ import { Commands } from './constants';
 import { ClientRequest } from './client-request';
 import { ServerResponse } from './server-response';
 
+interface IPackage {
+    name: string;
+    version: string;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const pkg = require('../../package.json') as IPackage;
+
 export class PeerPropertiesRequest extends ClientRequest {
     private props = new Map([
-        ['product', '@artie-owlet/rabbitmq-stream-client'],
+        ['product', pkg.name],
+        ['version', pkg.version],
         ['platform', `Node.js ${process.version}`]
     ]);
 
