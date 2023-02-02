@@ -39,7 +39,14 @@ import {
     ConsumerUpdateResponseOk,
     ConsumerUpdateResponseNoStream,
 } from './messages/consumer-update';
+import {
+    CommandVersionsExchangeRequest,
+    CommandVersionsExchangeResponse,
+    ICommandVersion,
+} from './messages/command-versions-exchange';
+import { StreamStatsRequest, StreamStatsResponse } from './messages/stream-stats';
 import { printResponse } from './print-response';
+import { PromiseQueue } from './promise-queue';
 
 export interface IClientOptions extends IConnectionOptions {
     username?: string;
@@ -50,6 +57,7 @@ export interface IClientOptions extends IConnectionOptions {
     requestTimeout?: number;
     reconnectTimeoutMs: number;
     connectionName?: string;
+    disableDeliverCrcCheck?: boolean;
 }
 
 class UnsupportedVersionError extends Error {}
@@ -67,6 +75,13 @@ export interface IConsumerUpdateResolver {
     reject: () => void;
 }
 
+export interface IDeliverInfo {
+    subId: number;
+    committedChunkId: number;
+    timestamp: bigint;
+    offsetValue: bigint;
+}
+
 function hex(n: number): string {
     return n.toString(16).padStart(4, '0');
 }
@@ -77,7 +92,7 @@ interface IClientEvents {
     open: (properties: Map<string, string>) => void;
     publishConfirm: (pubId: number, msgIds: bigint[]) => void;
     publishError: (pubId: number, errors: IPublishingError[]) => void;
-    deliver: (messages: Buffer[]) => void;
+    deliver: (info: IDeliverInfo, messages: Buffer[]) => void;
     creditError: (subId: number, code: number) => void;
     metadataUpdate: (stream: string, code: number) => void;
     consumerUpdate: (res: IConsumerUpdateResolver) => void;
@@ -107,6 +122,7 @@ export class Client extends EventEmitter {
     private reqTimer: NodeJS.Timer;
     private serverProperties = new Map<string, string>();
     private closeReason = '';
+    private deliverQueue = new PromiseQueue<[IDeliverInfo, Buffer[]]>;
 
     constructor(
         private options: IClientOptions,
@@ -116,6 +132,12 @@ export class Client extends EventEmitter {
         this.heartbeat = options.heartbeat || 0;
         this.requestTimeoutMs = (options.requestTimeout || DEFAULT_REQUEST_TIMEOUT) * 1000;
         this.reqTimer = setInterval(this.onRequestTimeout.bind(this), this.requestTimeoutMs / 10);
+
+        this.deliverQueue.on('ready', ([info, messages]) => this.emit('deliver', info, messages));
+        this.deliverQueue.on('error',
+            (err) => this.emit('error', new Error(`Failed to parse Deliver: ${err.message}`))
+        );
+
         this.connect();
     }
 
@@ -191,6 +213,18 @@ export class Client extends EventEmitter {
         return res.streams;
     }
 
+    public async exchangeCommandVersion(): Promise<ICommandVersion[]> {
+        const res = new CommandVersionsExchangeResponse(
+            await this.sendRequest(new CommandVersionsExchangeRequest())
+        );
+        return res.commands;
+    }
+
+    public async streamStats(stream: string): Promise<Map<string, bigint>> {
+        const res = new StreamStatsResponse(await this.sendRequest(new StreamStatsRequest(stream)));
+        return res.stats;
+    }
+
     public close(): void {
         this.isClosed = true;
         clearInterval(this.reqTimer);
@@ -234,13 +268,15 @@ export class Client extends EventEmitter {
         if (this.options.username !== undefined) {
             if (!handshake.mechanisms.includes('PLAIN')) {
                 throw new Error(
-                    'Authentication failed: username provided but server does not support PLAIN authentication');
+                    'Authentication failed: username provided but server does not support PLAIN authentication'
+                );
             }
             req = new PlainSaslAuthenticateRequest(this.options.username, this.options.password || '');
         } else {
             if (!handshake.mechanisms.includes('EXTERNAL')) {
                 throw new Error(
-                    'Authentication failed: no username provided and server does not support EXTERNAL authentication');
+                    'Authentication failed: no username provided and server does not support EXTERNAL authentication'
+                );
             }
             req = new ExternalSaslAuthenticateRequest();
         }
@@ -363,16 +399,17 @@ export class Client extends EventEmitter {
             throw new UnsupportedVersionError();
         }
 
-        void this.handleDeliver(version, msg);
-    }
-
-    private async handleDeliver(version: 1 | 2, msg: Buffer): Promise<void> {
-        try {
-            const messages = await Deliver.parse(msg, version, false);
-            this.emit('deliver', messages);
-        } catch (err) {
-            this.emit('error', err instanceof Error ? err : new Error(`Failed to parse Deliver: ${String(err)}`));
-        }
+        const deliver = new Deliver(msg, version, this.options.disableDeliverCrcCheck || false);
+        this.deliverQueue.push((async () => {
+            const messages = await deliver.parseData();
+            return [{
+                subId: deliver.subId,
+                committedChunkId: deliver.committedChunkId,
+                timestamp: deliver.timestamp,
+                offsetValue: deliver.offsetValue,
+            }, messages];
+        })());
+        this.credit(deliver.subId, 1);
     }
 
     private onCreditResponse(version: number, msg: Buffer): void {

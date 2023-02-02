@@ -1,9 +1,9 @@
 import { ServerMessage } from './server-message';
 import { crc32 } from './crc32';
 import { DataReader } from './data-reader';
-import { uncompressGzip } from './compression/gzip';
+import { decodeGzip } from './gzip';
 
-enum CompressionTypes {
+export enum CompressionTypes {
     None = 0,
     Gzip = 1,
     Snappy = 2,
@@ -11,9 +11,13 @@ enum CompressionTypes {
     Zstd = 4,
 }
 
-const uncompressors = new Map([
-    [CompressionTypes.Gzip, uncompressGzip],
+const decoders = new Map([
+    [CompressionTypes.Gzip, decodeGzip],
 ]);
+
+export function installDecoder(cmpType: number, decode: (input: Buffer) => Promise<Buffer>): void {
+    decoders.set(cmpType, decode);
+}
 
 class DeliverParseError extends Error {
     constructor(reason: string) {
@@ -22,19 +26,6 @@ class DeliverParseError extends Error {
 }
 
 export class Deliver extends ServerMessage {
-    public static async parse(msg: Buffer, version: 1 | 2, disableCrcCheck: boolean): Promise<Buffer[]> {
-        const deliver = new Deliver(msg, version);
-
-        if (!disableCrcCheck) {
-            if (!deliver.checkCrc()) {
-                throw new Error('Failed to parse Deliver: wrong checksum');
-            }
-        }
-
-        await deliver.parseData();
-        return deliver.records;
-    }
-
     public readonly subId: number;
     public readonly committedChunkId: number;
     public readonly timestamp: bigint;
@@ -45,10 +36,11 @@ export class Deliver extends ServerMessage {
     private checksum: number;
     private dataLength: number;
 
-    private constructor(
+    constructor(
         private msg: Buffer,
-        version: 1 | 2)
-    {
+        version: 1 | 2,
+        disableCrcCheck: boolean,
+    ) {
         super(msg);
         this.subId = this.readUInt8();
         this.committedChunkId = version === 1 ? 0 : this.readUInt32();
@@ -65,14 +57,15 @@ export class Deliver extends ServerMessage {
         this.checksum = this.readUInt32();
         this.dataLength = this.readUInt32();
         this.shift(8); // TrailerLength, Reserved
+
+        if (!disableCrcCheck) {
+            if (!this.checkCrc()) {
+                throw new Error('Failed to parse Deliver: wrong checksum');
+            }
+        }
     }
 
-    private checkCrc(): boolean {
-        const data = this.msg.subarray(this.getOffset(), this.getOffset() + this.dataLength);
-        return crc32(data) === this.checksum;
-    }
-
-    private async parseData(): Promise<void> {
+    public async parseData(): Promise<Buffer[]> {
         const uncmpJobs = [] as Promise<void>[];
         let recId = 0;
         for (let i = 0; i < this.numEntries; ++i) {
@@ -89,11 +82,11 @@ export class Deliver extends ServerMessage {
                 if (cmpType === CompressionTypes.None) {
                     this.readSubEntries(data, recId, recordsInBatch);
                 } else {
-                    const uncompress = uncompressors.get(cmpType);
-                    if (!uncompress) {
+                    const decode = decoders.get(cmpType);
+                    if (!decode) {
                         throw new DeliverParseError(`compression type ${cmpType} not supported`);
                     }
-                    uncmpJobs.push(this.readCmpSubEntries(uncompress, data, recId, recordsInBatch));
+                    uncmpJobs.push(this.readCmpSubEntries(decode, data, recId, recordsInBatch));
                 }
                 recId += recordsInBatch;
             }
@@ -101,6 +94,7 @@ export class Deliver extends ServerMessage {
         if (uncmpJobs.length > 0) {
             await Promise.all(uncmpJobs);
         }
+        return this.records;
     }
 
     private async readCmpSubEntries(
@@ -118,5 +112,10 @@ export class Deliver extends ServerMessage {
         for (let i = startRecordId; i < recordsInBatch; ++i) {
             this.records[i] = reader.readBytes();
         }
+    }
+
+    private checkCrc(): boolean {
+        const data = this.msg.subarray(this.getOffset(), this.getOffset() + this.dataLength);
+        return crc32(data) === this.checksum;
     }
 }

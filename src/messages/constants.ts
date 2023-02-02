@@ -27,8 +27,8 @@ export enum Commands {
     Route = 0x0018,
     Partitions = 0x0019,
     ConsumerUpdate = 0x001a,
-    // ExchangeCommandVersions = 0x001b,
-    // StreamStats = 0x001c,
+    ExchangeCommandVersions = 0x001b,
+    StreamStats = 0x001c,
 }
 
 export const RESPONSE_FLAG = 0x8000;
