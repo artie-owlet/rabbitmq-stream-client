@@ -55,7 +55,6 @@ export interface IClientOptions extends IConnectionOptions {
     frameMax?: number;
     heartbeat?: number;
     requestTimeout?: number;
-    reconnectTimeoutMs: number;
     connectionName?: string;
     disableDeliverCrcCheck?: boolean;
 }
@@ -89,7 +88,7 @@ function hex(n: number): string {
 const DEFAULT_REQUEST_TIMEOUT = 10;
 
 interface IClientEvents {
-    open: (properties: Map<string, string>) => void;
+    open: () => void;
     publishConfirm: (pubId: number, msgIds: bigint[]) => void;
     publishError: (pubId: number, errors: IPublishingError[]) => void;
     deliver: (info: IDeliverInfo, messages: Buffer[]) => void;
@@ -111,20 +110,34 @@ export interface Client {
 }
 
 export class Client extends EventEmitter {
+    public static async createClient(host: string, port: number, options: IClientOptions): Promise<Client> {
+        return new Promise((res, rej) => {
+            let lastErr: Error | null = null;
+            const cli = new Client(host, port, options);
+            cli.on('error', (err) => lastErr = err);
+            cli.once('open', () => res(cli));
+            cli.once('close',
+                (reason) => rej(lastErr instanceof Error ? lastErr : new Error(`Connection closed: ${reason}`)));
+        });
+    }
+
+    public serverProperties = new Map<string, string>();
+
     private frameMax: number;
     private heartbeat: number;
     private requestTimeoutMs: number;
 
-    private conn: Connection | null = null;
-    private isClosed = false;
+    private conn: Connection;
     private corrIdCounter = 0;
     private requests = new Map<number, IRequest>();
     private reqTimer: NodeJS.Timer;
-    private serverProperties = new Map<string, string>();
+    private tuneTimer: NodeJS.Timer | null = null;
     private closeReason = '';
-    private deliverQueue = new PromiseQueue<[IDeliverInfo, Buffer[]]>;
+    private deliverQueues = new Map<number, PromiseQueue<[IDeliverInfo, Buffer[]]>>;
 
     constructor(
+        private host: string,
+        private port: number,
         private options: IClientOptions,
     ) {
         super();
@@ -133,12 +146,11 @@ export class Client extends EventEmitter {
         this.requestTimeoutMs = (options.requestTimeout || DEFAULT_REQUEST_TIMEOUT) * 1000;
         this.reqTimer = setInterval(this.onRequestTimeout.bind(this), this.requestTimeoutMs / 10);
 
-        this.deliverQueue.on('ready', ([info, messages]) => this.emit('deliver', info, messages));
-        this.deliverQueue.on('error',
-            (err) => this.emit('error', new Error(`Failed to parse Deliver: ${err.message}`))
-        );
-
-        this.connect();
+        this.conn = new Connection(this.host, this.port, this.options);
+        this.conn.on('connect', this.onConnect.bind(this));
+        this.conn.on('message', this.onMessage.bind(this));
+        this.conn.on('close', this.onClose.bind(this));
+        this.conn.on('error', (err: Error) => this.emit('error', err));
     }
 
     public async declarePublisher(pubId: number, pubRef: string, stream: string): Promise<void> {
@@ -226,32 +238,20 @@ export class Client extends EventEmitter {
     }
 
     public close(): void {
-        this.isClosed = true;
-        clearInterval(this.reqTimer);
-        if (this.conn) {
-            this.conn.close();
-        }
-    }
-
-    private connect(): void {
-        if (this.isClosed) {
-            return;
-        }
-
-        this.conn = new Connection(this.options);
-        this.conn.on('connect', this.onConnect.bind(this));
-        this.conn.on('message', this.onMessage.bind(this));
-        this.conn.on('close', this.onClose.bind(this));
-        this.conn.on('error', (err: Error) => this.emit('error', err));
-        this.closeReason = '';
+        this.conn.close();
     }
 
     private async onConnect(): Promise<void> {
         try {
             await this.peerPropertiesExchange();
             await this.authenticate();
+            this.tuneTimer = setTimeout(() => {
+                this.emit('error', new Error('Tune timeout'));
+                this.close();
+            }, this.requestTimeoutMs);
         } catch (err) {
             this.emit('error', err instanceof Error ? err : new Error(String(err)));
+            this.close();
         }
     }
 
@@ -285,9 +285,6 @@ export class Client extends EventEmitter {
 
     private async sendRequest(req: ClientRequest): Promise<Buffer> {
         return new Promise((resolve, reject) => {
-            if (this.conn === null) {
-                throw new Error('Client not connected');
-            }
             if (this.corrIdCounter === MAX_CORRELATION_ID) {
                 this.corrIdCounter = 0;
             }
@@ -304,9 +301,6 @@ export class Client extends EventEmitter {
     }
 
     private sendMessage(msg: ClientMessage): void {
-        if (this.conn === null) {
-            throw new Error('Client not connected');
-        }
         this.conn.sendMessage(msg.serialize());
     }
 
@@ -400,7 +394,8 @@ export class Client extends EventEmitter {
         }
 
         const deliver = new Deliver(msg, version, this.options.disableDeliverCrcCheck || false);
-        this.deliverQueue.push((async () => {
+        const queue = this.getDeliverQueue(deliver.subId);
+        queue.push((async () => {
             const messages = await deliver.parseData();
             return [{
                 subId: deliver.subId,
@@ -410,6 +405,19 @@ export class Client extends EventEmitter {
             }, messages];
         })());
         this.credit(deliver.subId, 1);
+    }
+
+    private getDeliverQueue(subId: number): PromiseQueue<[IDeliverInfo, Buffer[]]> {
+        let queue = this.deliverQueues.get(subId);
+        if (queue) {
+            return queue;
+        }
+
+        queue = new PromiseQueue<[IDeliverInfo, Buffer[]]>();
+        queue.on('ready', ([info, messages]) => this.emit('deliver', info, messages));
+        queue.on('error', (err) => this.emit('error', new Error(`Failed to parse Deliver: ${err.message}`)));
+        this.deliverQueues.set(subId, queue);
+        return queue;
     }
 
     private onCreditResponse(version: number, msg: Buffer): void {
@@ -452,32 +460,31 @@ export class Client extends EventEmitter {
             throw new UnsupportedVersionError();
         }
 
+        if (this.tuneTimer !== null) {
+            clearTimeout(this.tuneTimer);
+            this.tuneTimer = null;
+        }
+
         const serverTune = new ServerTune(msg);
         const frameMax = (this.frameMax === 0 || serverTune.frameMax === 0) ?
             Math.max(this.frameMax, serverTune.frameMax) : Math.min(this.frameMax, serverTune.frameMax);
         const heartbeat = (this.heartbeat === 0 || serverTune.heartbeat === 0) ?
             Math.max(this.heartbeat, serverTune.heartbeat) : Math.min(this.heartbeat, serverTune.heartbeat);
-        this.tune(frameMax, heartbeat);
-
-        void this.open();
-    }
-
-    private tune(frameMax: number, heartbeat: number): void {
-        if (this.conn === null) {
-            return;
-        }
         this.conn.setFrameMax(frameMax);
         this.conn.setHeartbeat(heartbeat);
         this.sendMessage(new ClientTune(frameMax, heartbeat));
+    
+        void this.open();
     }
 
     private async open(): Promise<void> {
         try {
             const res = new OpenResponse(await this.sendRequest(new OpenRequest(this.options.vhost)));
-            this.serverProperties.forEach((value, key) => res.properties.set(key, value));
-            this.emit('open', res.properties);
+            res.properties.forEach((value, key) => this.serverProperties.set(key, value));
+            this.emit('open');
         } catch (err) {
             this.emit('error', err instanceof Error ? err : new Error(String(err)));
+            this.close();
         }
     }
 
@@ -489,9 +496,8 @@ export class Client extends EventEmitter {
         const closeReq = new CloseRequest(msg);
         this.closeReason = closeReq.reason;
         this.sendMessage(new CloseResponse(closeReq.corrId));
-        if (this.conn !== null) {
-            this.conn.close();
-        }
+        console.log('SERVER CLOSE', this.closeReason);
+        this.close();
     }
 
     private onConsumerUpdate(version: number, msg: Buffer): void {
@@ -514,14 +520,8 @@ export class Client extends EventEmitter {
         this.requests.forEach((req) => {
             req.reject(new Error('Connection closed'));
         });
-        this.requests.clear();
-        this.corrIdCounter = 0;
-        this.conn = null;
+        clearInterval(this.reqTimer);
         this.emit('close', this.closeReason);
-
-        if (!this.isClosed) {
-            setTimeout(this.connect.bind(this), this.options.reconnectTimeoutMs);
-        }
     }
 
     private onRequestTimeout(): void {

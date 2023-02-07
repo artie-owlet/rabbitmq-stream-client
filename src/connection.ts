@@ -6,8 +6,6 @@ import { Commands } from './messages/constants';
 import { ClientMessage } from './messages/client-message';
 
 export interface IConnectionOptions {
-    host: string;
-    port: number;
     keepAlive?: number | false;
     noDelay?: boolean;
     tls?: TlsConnectionOptions;
@@ -40,32 +38,32 @@ export class Connection extends EventEmitter {
     private recvBuf: Buffer | null = null;
 
     constructor(
-        opts: IConnectionOptions,
+        host: string,
+        port: number,
+        options: IConnectionOptions,
     ) {
         super();
         
-        if (opts.tls === undefined) {
-            this.sock = connect(opts.port, opts.host, () => this.emit('connect'));
+        if (options.tls === undefined) {
+            this.sock = connect(port, host, () => this.emit('connect'));
         } else {
-            this.sock = tlsConnect(opts.port, opts.host, opts.tls, () => this.emit('connect'));
+            this.sock = tlsConnect(port, host, options.tls, () => this.emit('connect'));
         }
 
         this.sock.on('data', this.onData.bind(this));
         this.sock.on('close', this.onClose.bind(this));
         this.sock.on('error', (err: Error) => this.emit('error', err));
 
-        if (opts.keepAlive !== undefined) {
-            if (opts.keepAlive) {
-                this.sock.setKeepAlive(true, opts.keepAlive);
+        if (options.keepAlive !== undefined) {
+            if (options.keepAlive) {
+                this.sock.setKeepAlive(true, options.keepAlive);
             } else {
                 this.sock.setKeepAlive(false);
             }
         }
-        if (opts.noDelay !== undefined) {
-            this.sock.setNoDelay(opts.noDelay);
+        if (options.noDelay !== undefined) {
+            this.sock.setNoDelay(options.noDelay);
         }
-
-        this.on('message', (msg) => console.log('RECV', msg.toString('hex')));
     }
 
     public setFrameMax(frameMax: number): void {
@@ -80,7 +78,6 @@ export class Connection extends EventEmitter {
     }
 
     public sendMessage(msg: Buffer): void {
-        console.log('SEND', msg.toString('hex'));
         if (this.frameMax > 0 && msg.length > this.frameMax) {
             throw new Error('Frame too large');
         }

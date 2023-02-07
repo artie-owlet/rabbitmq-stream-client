@@ -1,30 +1,20 @@
 import { Client } from './client';
-// import { OffsetTypes } from './messages/offset';
 
-const cli = new Client({
-    host: '127.0.0.1',
-    port: 5552,
+const cliOpts = {
     username: 'guest',
     password: 'guest',
     vhost: '/',
-    reconnectTimeoutMs: 2000,
-});
-cli.on('open', async (props) => {
-    console.log('OPEN', props);
-    try {
-        // await cli.subscribe(1, 'test-stream', {type: OffsetTypes.Next}, 2, new Map());
-        const stats = await cli.streamStats('test-stream');
-        console.log(stats);
-        console.log('OK');
-    } catch (err) {
-        console.log(err);
-    }
-});
+};
 
-let n = 0;
-cli.on('deliver', (info) => {
-    console.log('DELIVER', ++n, info.offsetValue);
-});
-cli.on('close', () => console.log('CLOSE'));
-cli.on('error', (err: Error) => console.log('ERROR', err));
-// setTimeout(() => cli.close(), 3000);
+async function test2(): Promise<void> {
+    try {
+        const cli = await Client.createClient('127.0.0.1', 5552, cliOpts);
+        cli.on('close', (reason) => console.log('CLOSE', reason));
+        cli.on('error', (err) => console.log('ERROR', err.message));
+        console.log(cli.serverProperties);
+    } catch (err) {
+        console.log('CATCH', err);
+    }
+}
+
+void test2();

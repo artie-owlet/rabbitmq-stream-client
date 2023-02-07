@@ -1,6 +1,6 @@
 {
   "name": "@artie-owlet/rabbitmq-stream-client",
-  "version": "1.0.0-dev.0",
+  "version": "0.1.0-dev.0",
   "description": "Client for RabbitMQ Streams",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
