@@ -6,6 +6,7 @@ import { Commands } from './messages/constants';
 import { ClientMessage } from './messages/client-message';
 
 export interface IConnectionOptions {
+    connectTimeoutMs?: number;
     keepAlive?: number | false;
     noDelay?: boolean;
     tls?: TlsConnectionOptions;
@@ -32,6 +33,7 @@ export interface Connection {
 
 export class Connection extends EventEmitter {
     private sock: Socket | TLSSocket;
+    private connTimer?: NodeJS.Timer;
     private frameMax = 0;
     private heartbeatTimer: NodeJS.Timer | null = null;
     private dataReceived = false;
@@ -43,17 +45,22 @@ export class Connection extends EventEmitter {
         options: IConnectionOptions,
     ) {
         super();
-        
+
         if (options.tls === undefined) {
-            this.sock = connect(port, host, () => this.emit('connect'));
+            this.sock = connect(port, host, this.onConnect.bind(this));
         } else {
-            this.sock = tlsConnect(port, host, options.tls, () => this.emit('connect'));
+            this.sock = tlsConnect(port, host, options.tls, this.onConnect.bind(this));
         }
 
         this.sock.on('data', this.onData.bind(this));
         this.sock.on('close', this.onClose.bind(this));
         this.sock.on('error', (err: Error) => this.emit('error', err));
 
+        if (options.connectTimeoutMs !== undefined && options.connectTimeoutMs > 0) {
+            this.connTimer = setTimeout(() => {
+                this.sock.destroy(new Error('Connect timeout'));
+            }, options.connectTimeoutMs);
+        }
         if (options.keepAlive !== undefined) {
             if (options.keepAlive) {
                 this.sock.setKeepAlive(true, options.keepAlive);
@@ -91,6 +98,14 @@ export class Connection extends EventEmitter {
         this.stopHeartbeat();
     }
 
+    private onConnect() {
+        if (this.connTimer !== undefined) {
+            clearTimeout(this.connTimer);
+        }
+        this.dataReceived = true;
+        this.emit('connect');
+    }
+
     private onData(data: Buffer): void {
         this.dataReceived = true;
 
@@ -102,6 +117,9 @@ export class Connection extends EventEmitter {
         
         let offset = 0;
         while (offset < this.recvBuf.length) {
+            if (offset + 4 > this.recvBuf.length) {
+                break;
+            }
             const msgSize = this.recvBuf.readUInt32BE(offset);
             if (offset + 4 + msgSize > this.recvBuf.length) {
                 break;

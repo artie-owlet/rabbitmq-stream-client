@@ -73,7 +73,7 @@
     "@typescript-eslint/no-unused-vars": [
       "error",
       {
-        "argsIgnorePattern": "^_[0-9]*$"
+        "argsIgnorePattern": "^_[0-9A-Za-z]*$"
       }
     ],
     "@typescript-eslint/semi": [
