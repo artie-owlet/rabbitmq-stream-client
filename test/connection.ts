@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/unbound-method */
 import { setImmediate as pause, setTimeout as sleep } from 'timers/promises';
 import { expect } from 'chai';
 
@@ -6,6 +7,7 @@ const net = require('net') as typeof import('net');
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const tls = require('tls') as typeof import('tls');
 
+import { describeMethod } from './mocha-format';
 import { promisifyEvent } from './promisify-event';
 import { SocketMock, netConnect, tlsConnect } from './mock/socket';
 
@@ -41,29 +43,19 @@ describe('Connection', () => {
 
     describe('constructor', () => {
         it('should create net socket', () => {
-            new Connection('localhost', 5552, {});
+            new Connection('localhost', 5552, {
+                keepAlive: 30,
+                noDelay: true,
+                connectTimeoutMs: 100,
+            });
             expect(SocketMock.sock.host).eq('localhost');
             expect(SocketMock.sock.port).eq(5552);
             expect(SocketMock.sock.tls).undefined;
-        });
-
-        it('should create tls socket', () => {
-            const tlsParams = {};
-            new Connection('localhost', 5552, {
-                tls: tlsParams,
-            });
-            expect(SocketMock.sock.host).eq('localhost');
-            expect(SocketMock.sock.port).eq(5552);
-            expect(SocketMock.sock.tls).eq(tlsParams);
-        });
-
-        it('should set keepAlive on', () => {
-            new Connection('localhost', 5552, {
-                keepAlive: 30,
-            });
             expect(SocketMock.sock.calls).deep.eq([
                 ['setKeepAlive', true, 30],
+                ['setNoDelay', true],
             ]);
+            SocketMock.sock.onconnect();
         });
 
         it('should set keepAlive off', () => {
@@ -75,13 +67,14 @@ describe('Connection', () => {
             ]);
         });
 
-        it('should set noDelay', () => {
+        it('should create tls socket', () => {
+            const tlsParams = {};
             new Connection('localhost', 5552, {
-                noDelay: true,
+                tls: tlsParams,
             });
-            expect(SocketMock.sock.calls).deep.eq([
-                ['setNoDelay', true],
-            ]);
+            expect(SocketMock.sock.host).eq('localhost');
+            expect(SocketMock.sock.port).eq(5552);
+            expect(SocketMock.sock.tls).eq(tlsParams);
         });
 
         it('should set connect timeout', async () => {
@@ -99,7 +92,7 @@ describe('Connection', () => {
         }).slow(300);
     });
 
-    describe('#setFrameMax()', () => {
+    describeMethod('setFrameMax', () => {
         it('should set frameMax', () => {
             const conn = new Connection('localhost', 5552, {});
             conn.setFrameMax(2);
@@ -107,7 +100,7 @@ describe('Connection', () => {
         });
     });
 
-    describe('#setHeartbeat()', () => {
+    describeMethod('setHeartbeat', () => {
         let conn: Connection;
         let calls: [string, ...unknown[]][];
         const hbMsg = createMessage(Buffer.from([0,Commands.Heartbeat,0,1]));
@@ -153,7 +146,7 @@ describe('Connection', () => {
         }).slow(400);
     });
 
-    describe('#sendMessage()', () => {
+    describeMethod('sendMessage', () => {
         it('should write message to socket', () => {
             const conn = new Connection('localhost', 5552, {});
             const msg = Buffer.from('test');
@@ -164,7 +157,7 @@ describe('Connection', () => {
         });
     });
 
-    describe('#close()', () => {
+    describeMethod('close', () => {
         it('should close connection', () => {
             const conn = new Connection('localhost', 5552, {});
             conn.close();
@@ -174,20 +167,7 @@ describe('Connection', () => {
         });
     });
 
-    describe('#onConnect()', () => {
-        it('should stop connect timer', async () => {
-            let connErr: Error | undefined;
-            const conn = new Connection('localhost', 5552, {
-                connectTimeoutMs: 100,
-            });
-            conn.on('error', (err) => connErr = err);
-            SocketMock.sock.onconnect();
-            await sleep(150);
-            expect(connErr).undefined;
-        }).slow(400);
-    });
-
-    describe('#onData()', () => {
+    describe('messages', () => {
         let conn: Connection;
 
         beforeEach(() => {
@@ -197,37 +177,30 @@ describe('Connection', () => {
 
         it('should parse messages', async () => {
             const send = [
-                createMessage(Buffer.from('first')),
-                createMessage(Buffer.from('second')),
-            ];
-            const recv = [] as Buffer[];
-            conn.on('message', (msg) => recv.push(msg));
-            send.forEach((msg) => SocketMock.sock.emit('data', msg));
-            await pause();
-            expect(recv.length).eq(2);
-            recv.forEach((msg, id) => expect(msg.toString('hex')).eq(send[id].toString('hex')));
-        });
-
-        it('should parse merged and split messages', async () => {
-            const send = [
+                createMessage(Buffer.from('single')),
                 createMessage(Buffer.from('first')),
                 createMessage(Buffer.from('second')),
                 createMessage(Buffer.from('third')),
             ];
-            const data = Buffer.concat(send);
+
             const recv = [] as Buffer[];
             conn.on('message', (msg) => recv.push(msg));
+
+            SocketMock.sock.emit('data', send[0]);
+
+            const data = Buffer.concat(send.slice(1));
             SocketMock.sock.emit('data', data.subarray(0, 10));
             SocketMock.sock.emit('data', data.subarray(10, 24));
             SocketMock.sock.emit('data', data.subarray(24));
+
             await pause();
-            expect(recv.length).eq(3);
+            expect(recv.length).eq(4);
             recv.forEach((msg, id) => expect(msg.toString('hex')).eq(send[id].toString('hex')));
         });
     });
 
-    describe('#onHeartbeatTimeout()', () => {
-        it('should emit error and close socket after 2 timeouts', async () => {
+    describe('heartbeat', () => {
+        it('should emit error and close socket after 2 heartbeat timeouts', async () => {
             let hbErr: Error | undefined;
             const conn = new Connection('localhost', 5552, {});
             conn.on('error', (err) => hbErr = err);

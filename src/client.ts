@@ -116,8 +116,7 @@ export class Client extends EventEmitter {
             const cli = new Client(host, port, options);
             cli.on('error', (err) => lastErr = err);
             cli.once('open', () => res(cli));
-            cli.once('close',
-                (reason) => rej(lastErr instanceof Error ? lastErr : new Error(`Connection closed: ${reason}`)));
+            cli.once('close', (reason) => rej(lastErr === null ? new Error(`Connection closed: ${reason}`) : lastErr ));
         });
     }
 
@@ -496,7 +495,6 @@ export class Client extends EventEmitter {
         const closeReq = new CloseRequest(msg);
         this.closeReason = closeReq.reason;
         this.sendMessage(new CloseResponse(closeReq.corrId));
-        console.log('SERVER CLOSE', this.closeReason);
         this.close();
     }
 
