@@ -11,7 +11,7 @@
     "build": "tsc",
     "clean": "rm -rf dist/",
     "lint": "eslint --cache --ext .js,.jsx,.ts,.tsx src/ test/",
-    "test": "mocha -r ts-node/register/transpile-only test/*.ts",
+    "test": "mocha -r ts-node/register/transpile-only --extension=ts --recursive test/",
     "coverage": "nyc npm run test",
     "doc": "typedoc"
   },
