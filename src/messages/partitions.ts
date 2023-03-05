@@ -1,6 +1,6 @@
 import { Commands } from './constants';
-import { ClientRequest } from './client-request';
-import { ServerResponse } from './server-response';
+import { ClientRequest } from './client-message';
+import { ServerResponse } from './server-message';
 
 export class PartitionsRequest extends ClientRequest {
     constructor(

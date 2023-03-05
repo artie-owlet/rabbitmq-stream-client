@@ -1,8 +1,8 @@
 import process from 'process';
 
 import { Commands } from './constants';
-import { ClientRequest } from './client-request';
-import { ServerResponse } from './server-response';
+import { ClientRequest } from './client-message';
+import { ServerResponse } from './server-message';
 
 interface IPackage {
     name: string;

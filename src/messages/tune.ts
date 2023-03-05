@@ -1,5 +1,5 @@
 import { Commands } from './constants';
-import { ClientMessage } from './client-message';
+import { ClientCommand } from './client-message';
 import { ServerMessage } from './server-message';
 
 export class ServerTune extends ServerMessage {
@@ -13,7 +13,7 @@ export class ServerTune extends ServerMessage {
     }
 }
 
-export class ClientTune extends ClientMessage {
+export class ClientTune extends ClientCommand {
     constructor(
         private frameMax: number,
         private heartbeat: number,

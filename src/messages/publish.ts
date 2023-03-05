@@ -1,7 +1,7 @@
 import { Commands } from './constants';
-import { ClientMessage } from './client-message';
+import { ClientCommand } from './client-message';
 
-export class Publish extends ClientMessage {
+export class Publish extends ClientCommand {
     private msgs = [] as [bigint, Buffer][];
 
     constructor(

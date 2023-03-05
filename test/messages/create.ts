@@ -1,9 +1,7 @@
-import { expect } from 'chai';
-
 import { DataWriter } from '../../src/messages/data-writer';
 import { Commands } from '../../src/messages/constants';
 
-import { writeRequestHeader } from './common';
+import { writeRequestHeader, testClientRequest } from './common';
 
 import { CreateRequest } from '../../src/messages/create';
 
@@ -31,7 +29,8 @@ function request(): Buffer {
 }
 
 describe('Create', () => {
-    it('request', () => {
-        expect(new CreateRequest(TEST_STREAM, TEST_ARGS).serialize(1)).deep.eq(request());
-    });
+    testClientRequest(new CreateRequest(TEST_STREAM, TEST_ARGS), request());
+    // it('request', () => {
+    //     expect(new CreateRequest(TEST_STREAM, TEST_ARGS).serialize(1)).deep.eq(request());
+    // });
 });

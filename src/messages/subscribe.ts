@@ -1,5 +1,5 @@
 import { Commands } from './constants';
-import { ClientRequest } from './client-request';
+import { ClientRequest } from './client-message';
 import { Offset, OffsetTypes } from './offset';
 
 export class SubscribeRequest extends ClientRequest {

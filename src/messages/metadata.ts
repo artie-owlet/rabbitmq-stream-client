@@ -1,5 +1,5 @@
 import { Commands, RESPONSE_CODE_OK } from './constants';
-import { ClientRequest } from './client-request';
+import { ClientRequest } from './client-message';
 import { DataReader } from './data-reader';
 
 export class MetadataRequest extends ClientRequest {

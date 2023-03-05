@@ -3,11 +3,10 @@ import { connect, Socket } from 'net';
 import { connect as tlsConnect, ConnectionOptions as TlsConnectionOptions, TLSSocket } from 'tls';
 
 import { Commands } from './messages/constants';
-import { ClientMessage } from './messages/client-message';
+import { ClientCommand } from './messages/client-message';
 
 export interface IConnectionOptions {
     connectTimeoutMs?: number;
-    keepAlive?: number | false;
     noDelay?: boolean;
     tls?: TlsConnectionOptions;
 }
@@ -19,7 +18,7 @@ interface IConnectionEvents {
     error: (err: Error) => void;
 }
 
-const hbMsg = new ClientMessage(Commands.Heartbeat, 1).serialize();
+const hbMsg = new ClientCommand(Commands.Heartbeat, 1).serialize();
 
 // eslint-disable-next-line @typescript-eslint/naming-convention
 export interface Connection {
@@ -60,13 +59,6 @@ export class Connection extends EventEmitter {
             this.connTimer = setTimeout(() => {
                 this.sock.destroy(new Error('Connect timeout'));
             }, options.connectTimeoutMs);
-        }
-        if (options.keepAlive !== undefined) {
-            if (options.keepAlive) {
-                this.sock.setKeepAlive(true, options.keepAlive);
-            } else {
-                this.sock.setKeepAlive(false);
-            }
         }
         if (options.noDelay !== undefined) {
             this.sock.setNoDelay(options.noDelay);

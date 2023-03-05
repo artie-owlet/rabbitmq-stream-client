@@ -1,3 +1,4 @@
+import { RESPONSE_FLAG } from './constants';
 import { DataWriter } from './data-writer';
 
 enum Types {
@@ -18,7 +19,7 @@ type BigIntField = [Types.Int64 | Types.UInt64, bigint];
 type BytesField = [Types.Bytes, Buffer | null];
 type StringField = [Types.String, string | null];
 
-export class ClientMessage {
+class ClientMessage {
     private size = 0;
     private fields = [] as (IntField | BigIntField | BytesField | StringField)[];
 
@@ -28,45 +29,10 @@ export class ClientMessage {
     ) {
     }
 
-    public serialize(corrId?: number): Buffer {
-        this.build(corrId);
-        const msg = Buffer.allocUnsafe(this.size + 4);
-        const writer = new DataWriter(msg);
-        writer.writeUInt32(this.size);
-        this.fields.forEach(([t, val]) => {
-            switch (t) {
-                case Types.Int8:
-                    return writer.writeInt8(val);
-                case Types.Int16:
-                    return writer.writeInt16(val);
-                case Types.Int32:
-                    return writer.writeInt32(val);
-                case Types.Int64:
-                    return writer.writeInt64(val);
-                case Types.UInt8:
-                    return writer.writeUInt8(val);
-                case Types.UInt16:
-                    return writer.writeUInt16(val);
-                case Types.UInt32:
-                    return writer.writeUInt32(val);
-                case Types.UInt64:
-                    return writer.writeUInt64(val);
-                case Types.Bytes:
-                    return writer.writeBytes(val);
-                case Types.String:
-                    return writer.writeString(val);
-            }
-        });
-        return msg;
-    }
-
-    protected build(corrId?: number): void {
+    protected writeHeader(): void {
         this.fields.length = 0;
         this.writeUInt16(this.key);
         this.writeUInt16(this.version);
-        if (corrId !== undefined) {
-            this.writeUInt32(corrId);
-        }
     }
 
     protected writeInt8(n: number): void {
@@ -121,5 +87,81 @@ export class ClientMessage {
 
     protected writeArraySize(n: number): void {
         this.writeInt32(n);
+    }
+
+    protected serializeImpl(): Buffer {
+        const msg = Buffer.allocUnsafe(this.size + 4);
+        const writer = new DataWriter(msg);
+        writer.writeUInt32(this.size);
+        this.fields.forEach(([t, val]) => {
+            switch (t) {
+                case Types.Int8:
+                    return writer.writeInt8(val);
+                case Types.Int16:
+                    return writer.writeInt16(val);
+                case Types.Int32:
+                    return writer.writeInt32(val);
+                case Types.Int64:
+                    return writer.writeInt64(val);
+                case Types.UInt8:
+                    return writer.writeUInt8(val);
+                case Types.UInt16:
+                    return writer.writeUInt16(val);
+                case Types.UInt32:
+                    return writer.writeUInt32(val);
+                case Types.UInt64:
+                    return writer.writeUInt64(val);
+                case Types.Bytes:
+                    return writer.writeBytes(val);
+                case Types.String:
+                    return writer.writeString(val);
+            }
+        });
+        return msg;
+    }
+}
+
+export class ClientCommand extends ClientMessage {
+    public serialize(): Buffer {
+        this.build();
+        return this.serializeImpl();
+    }
+
+    protected build(): void {
+        this.writeHeader();
+    }
+}
+
+export class ClientRequest extends ClientMessage {
+    public serialize(corrId: number): Buffer {
+        this.build(corrId);
+        return this.serializeImpl();
+    }
+
+    protected build(corrId: number): void {
+        this.writeHeader();
+        this.writeUInt32(corrId);
+    }
+}
+
+export class ClientResponse extends ClientMessage {
+    constructor(
+        key: number,
+        version: number,
+        private corrId: number,
+        private code: number,
+    ) {
+        super(key & RESPONSE_FLAG, version);
+    }
+
+    public serialize(): Buffer {
+        this.build();
+        return this.serializeImpl();
+    }
+
+    protected build(): void {
+        this.writeHeader();
+        this.writeUInt32(this.corrId);
+        this.writeUInt16(this.code);
     }
 }

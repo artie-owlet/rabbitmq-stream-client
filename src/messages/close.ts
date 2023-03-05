@@ -1,6 +1,6 @@
 import { Commands, RESPONSE_CODE_OK } from './constants';
-import { ServerRequest } from './server-request';
-import { ClientResponse } from './client-response';
+import { ServerRequest } from './server-message';
+import { ClientResponse } from './client-message';
 
 export class CloseRequest extends ServerRequest {
     public readonly reason: string;

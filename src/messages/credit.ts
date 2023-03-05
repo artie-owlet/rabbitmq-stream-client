@@ -1,8 +1,8 @@
 import { Commands } from './constants';
-import { ClientMessage } from './client-message';
+import { ClientCommand } from './client-message';
 import { ServerMessage } from './server-message';
 
-export class Credit extends ClientMessage {
+export class Credit extends ClientCommand {
     constructor(
         private subId: number,
         private credit: number,

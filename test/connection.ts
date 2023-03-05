@@ -44,7 +44,6 @@ describe('Connection', () => {
     describe('constructor', () => {
         it('should create net socket', () => {
             new Connection('localhost', 5552, {
-                keepAlive: 30,
                 noDelay: true,
                 connectTimeoutMs: 100,
             });
@@ -56,15 +55,6 @@ describe('Connection', () => {
                 ['setNoDelay', true],
             ]);
             SocketMock.sock.onconnect();
-        });
-
-        it('should set keepAlive off', () => {
-            new Connection('localhost', 5552, {
-                keepAlive: false,
-            });
-            expect(SocketMock.sock.calls).deep.eq([
-                ['setKeepAlive', false],
-            ]);
         });
 
         it('should create tls socket', () => {

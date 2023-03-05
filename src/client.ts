@@ -3,10 +3,8 @@ import EventEmitter from 'events';
 import { Connection, IConnectionOptions } from './connection';
 import { Commands, MAX_CORRELATION_ID, RESPONSE_CODE_OK, RESPONSE_FLAG } from './messages/constants';
 import { Offset } from './messages/offset';
-import { ClientMessage } from './messages/client-message';
-import { ClientRequest } from './messages/client-request';
-import { parseMessageHeader } from './messages/server-message';
-import { parseResponseHeader } from './messages/server-response';
+import { ClientCommand, ClientRequest, ClientResponse } from './messages/client-message';
+import { parseMessageHeader, parseResponseHeader } from './messages/server-message';
 import { DeclarePublisherRequest } from './messages/declare-publisher';
 import { Publish } from './messages/publish';
 import { PublishConfirm } from './messages/publish-confirm';
@@ -130,6 +128,7 @@ export class Client extends EventEmitter {
     private corrIdCounter = 0;
     private requests = new Map<number, IRequest>();
     private reqTimer: NodeJS.Timer;
+    private tuneReceived = false;
     private tuneTimer: NodeJS.Timer | null = null;
     private closeReason = '';
     private deliverQueues = new Map<number, PromiseQueue<[IDeliverInfo, Buffer[]]>>;
@@ -163,7 +162,7 @@ export class Client extends EventEmitter {
         if (typeof args[0] === 'bigint') {
             cmd.addMessage(args[0], args[1] as Buffer);
         } else {
-            (args as [bigint, Buffer][]).forEach(([id, msg]) => {
+            (args[0] as [bigint, Buffer][]).forEach(([id, msg]) => {
                 cmd.addMessage(id, msg);
             });
         }
@@ -244,10 +243,12 @@ export class Client extends EventEmitter {
         try {
             await this.peerPropertiesExchange();
             await this.authenticate();
-            this.tuneTimer = setTimeout(() => {
-                this.emit('error', new Error('Tune timeout'));
-                this.close();
-            }, this.requestTimeoutMs);
+            if (!this.tuneReceived) {
+                this.tuneTimer = setTimeout(() => {
+                    this.emit('error', new Error('Tune timeout'));
+                    this.close();
+                }, this.requestTimeoutMs);
+            }
         } catch (err) {
             this.emit('error', err instanceof Error ? err : new Error(String(err)));
             this.close();
@@ -299,7 +300,7 @@ export class Client extends EventEmitter {
         });
     }
 
-    private sendMessage(msg: ClientMessage): void {
+    private sendMessage(msg: ClientCommand | ClientResponse): void {
         this.conn.sendMessage(msg.serialize());
     }
 
@@ -459,6 +460,7 @@ export class Client extends EventEmitter {
             throw new UnsupportedVersionError();
         }
 
+        this.tuneReceived = true;
         if (this.tuneTimer !== null) {
             clearTimeout(this.tuneTimer);
             this.tuneTimer = null;

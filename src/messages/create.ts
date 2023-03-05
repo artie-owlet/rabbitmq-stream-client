@@ -1,5 +1,5 @@
 import { Commands } from './constants';
-import { ClientRequest } from './client-request';
+import { ClientRequest } from './client-message';
 
 export class CreateRequest extends ClientRequest {
     constructor(
