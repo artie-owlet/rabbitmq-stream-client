@@ -23,10 +23,7 @@ import { MetadataRequest, MetadataResponse, IStreamMetadata } from './messages/m
 import { MetadataUpdate } from './messages/metadata-update';
 import { PeerPropertiesRequest, PeerPropertiesResponse } from './messages/peer-properties';
 import { SaslHandshakeRequest, SaslHandshakeResponse } from './messages/sasl-handshake';
-import {
-    PlainSaslAuthenticateRequest,
-    ExternalSaslAuthenticateRequest,
-} from './messages/sasl-authenticate';
+import { PlainSaslAuthenticateRequest } from './messages/sasl-authenticate';
 import { ServerTune, ClientTune } from './messages/tune';
 import { OpenRequest, OpenResponse } from './messages/open';
 import { CloseRequest, CloseResponse } from './messages/close';
@@ -47,8 +44,8 @@ import { printResponse } from './print-response';
 import { PromiseQueue } from './promise-queue';
 
 export interface IClientOptions extends IConnectionOptions {
-    username?: string;
-    password?: string;
+    username: string;
+    password: string;
     vhost: string;
     frameMax?: number;
     heartbeat?: number;
@@ -264,23 +261,12 @@ export class Client extends EventEmitter {
     private async authenticate(): Promise<void> {
         const handshake = new SaslHandshakeResponse(await this.sendRequest(new SaslHandshakeRequest()));
 
-        let req: ClientRequest;
-        if (this.options.username !== undefined) {
-            if (!handshake.mechanisms.includes('PLAIN')) {
-                throw new Error(
-                    'Authentication failed: username provided but server does not support PLAIN authentication'
-                );
-            }
-            req = new PlainSaslAuthenticateRequest(this.options.username, this.options.password || '');
-        } else {
-            if (!handshake.mechanisms.includes('EXTERNAL')) {
-                throw new Error(
-                    'Authentication failed: no username provided and server does not support EXTERNAL authentication'
-                );
-            }
-            req = new ExternalSaslAuthenticateRequest();
+        if (!handshake.mechanisms.includes('PLAIN')) {
+            throw new Error(
+                'Authentication failed: server does not support PLAIN authentication'
+            );
         }
-        await this.sendRequest(req);
+        await this.sendRequest(new PlainSaslAuthenticateRequest(this.options.username, this.options.password));
     }
 
     private async sendRequest(req: ClientRequest): Promise<Buffer> {

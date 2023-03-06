@@ -27,11 +27,6 @@ export class SocketMock extends BaseMock {
         SocketMock._sock = this;
     }
 
-    public setKeepAlive(): SocketMock {
-        this.recordCall(arguments);
-        return this;
-    }
-
     public setNoDelay(): SocketMock {
         this.recordCall(arguments);
         return this;

@@ -1,0 +1,33 @@
+version: '3'
+services:
+  rabbitmq1:
+    image: rabbitmq:3.11-management
+    hostname: rabbitmq1
+    ports:
+      - 4001:5552
+      - 4011:5551
+      - 15672:15672
+    volumes:
+      - ./rabbitmq-conf:/etc/rabbitmq
+      - ./rabbitmq-ssl:/var/lib/rabbitmq/ssl
+
+  rabbitmq2:
+    image: rabbitmq:3.11-management
+    hostname: rabbitmq2
+    ports:
+      - 4002:5552
+      - 4012:5551
+    volumes:
+      - ./rabbitmq-conf:/etc/rabbitmq
+      - ./rabbitmq-ssl:/var/lib/rabbitmq/ssl
+
+  rabbitmq3:
+    image: rabbitmq:3.11-management
+    hostname: rabbitmq3
+    ports:
+      - 4003:5552
+      - 4013:5551
+    volumes:
+      - ./rabbitmq-conf:/etc/rabbitmq
+      - ./rabbitmq-ssl:/var/lib/rabbitmq/ssl
+

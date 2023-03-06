@@ -15,14 +15,3 @@ export class PlainSaslAuthenticateRequest extends ClientRequest {
         this.writeBytes(Buffer.from(`\0${this.username}\0${this.password}`));
     }
 }
-
-export class ExternalSaslAuthenticateRequest extends ClientRequest {
-    constructor() {
-        super(Commands.SaslAuthenticate, 1);
-    }
-
-    protected override build(corrId: number): void {
-        super.build(corrId);
-        this.writeString('EXTERNAL');
-    }
-}
