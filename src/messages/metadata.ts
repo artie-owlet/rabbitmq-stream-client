@@ -16,14 +16,9 @@ export class MetadataRequest extends ClientRequest {
     }
 }
 
-interface IBroker {
-    host: string;
-    port: number;
-}
-
 export interface IStreamMetadata {
-    leader: IBroker;
-    replicas: IBroker[];
+    leader: string;
+    replicas: string[];
 }
 
 export class MetadataResponse extends DataReader {
@@ -33,12 +28,12 @@ export class MetadataResponse extends DataReader {
         super(msg, 12);
 
         const bSize = this.readArraySize();
-        const brokers = new Map<number, IBroker>();
+        const brokers = new Map<number, string>();
         for (let i = 0; i < bSize; ++i) {
-            brokers.set(this.readUInt16(), {
-                host: this.readString(),
-                port: this.readUInt32(),
-            });
+            const brokerId = this.readUInt16();
+            const host = this.readString();
+            this.shift(4);
+            brokers.set(brokerId, host);
         }
 
         const smSize = this.readArraySize();
@@ -56,11 +51,11 @@ export class MetadataResponse extends DataReader {
             }
 
             const size = this.readArraySize();
-            const replicas = [] as IBroker[];
+            const replicas = [] as string[];
             for (let j = 0; j < size; ++j) {
-                const broker = brokers.get(this.readUInt16());
-                if (broker) {
-                    replicas.push(broker);
+                const host = brokers.get(this.readUInt16());
+                if (host) {
+                    replicas.push(host);
                 }
             }
 

@@ -1,7 +1,7 @@
 version: '3'
 services:
   rabbitmq1:
-    image: rabbitmq:3.11-management
+    image: rabbitmq:3.11-management-alpine
     hostname: rabbitmq1
     ports:
       - 4001:5552
@@ -12,7 +12,7 @@ services:
       - ./rabbitmq-ssl:/var/lib/rabbitmq/ssl
 
   rabbitmq2:
-    image: rabbitmq:3.11-management
+    image: rabbitmq:3.11-management-alpine
     hostname: rabbitmq2
     ports:
       - 4002:5552
@@ -22,7 +22,7 @@ services:
       - ./rabbitmq-ssl:/var/lib/rabbitmq/ssl
 
   rabbitmq3:
-    image: rabbitmq:3.11-management
+    image: rabbitmq:3.11-management-alpine
     hostname: rabbitmq3
     ports:
       - 4003:5552

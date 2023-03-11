@@ -1,6 +1,8 @@
 #!/bin/bash
 
 rm -f ca.crt ca.key client.pfx server.crt server.key
+rm -rf ./rabbitmq-ssl
+mkdir ./rabbitmq-ssl
 
 openssl req -newkey rsa:4096 -x509 -days 365 -keyout ca.key -out ca.crt -subj '/CN=unknown' -noenc &> /dev/null
 
