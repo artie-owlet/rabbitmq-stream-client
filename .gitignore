@@ -7,3 +7,5 @@ public/
 *.crt
 *.key
 *.pfx
+.ci/rabbitmq-ssl
+.erlang.cookie

@@ -40,5 +40,6 @@
   "keywords": [
     "RabbitMQ",
     "RabbitMQ Streams"
-  ]
+  ],
+  "dependencies": {}
 }

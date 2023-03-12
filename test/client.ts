@@ -3,8 +3,6 @@ import path from 'path';
 import { expect, use as chaiUse } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 
-import { describeMethod, describeStaticMethod } from './mocha-format';
-
 import { Client, IClientOptions } from '../src/client';
 
 const TEST_HOST = 'localhost';
@@ -20,7 +18,7 @@ const TEST_BASE_OPTS: IClientOptions = {
 chaiUse(chaiAsPromised);
 
 describe('Client', () => {
-    describeStaticMethod('createClient', () => {
+    describe('.createClient()', () => {
         let cli: Client | undefined;
 
         afterEach(() => {
